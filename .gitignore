@@ -1,0 +1,29 @@
+# --- Java / build ---
+target/
+*.log
+
+# --- Local data / secrets ---
+*.env
+.env
+.env.*
+*.local
+*.sqlite
+*.db
+
+# --- IDE ---
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+.factorypath
+bin/
+
+# --- Ad-hoc scratch / shell-redirect output (e.g. `docker compose ... 2> err.txt`) ---
+/err*.txt
+/out*.txt
+
+# --- OS ---
+.DS_Store
+Thumbs.db
