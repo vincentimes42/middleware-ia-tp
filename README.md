@@ -1,6 +1,6 @@
 # TP IA — MCP server + Gemini in the Spring Boot API
 
-> ## ⚠️ Before you start — you need a Google account
+> ## Before you start — every student needs a Google account
 >
 > This TP uses Google's AI, so **each of you needs a Google account** to
 > obtain a **free API key**:
