@@ -41,7 +41,7 @@ the client config, and the verification curls.
 
 **MCP is an open protocol that lets an AI application call your program through
 standard "tools".** Your Spring Boot app is the **server**; an AI app
-(Gemini Desktop / Antigravity or any MCP client) is the **client**.
+(**Antigravity**, or any other MCP client) is the **client**.
 
 | Concept | What it is here |
 |---|---|
@@ -64,7 +64,7 @@ New to MCP or to Spring AI? This ~3-minute model makes the steps below click.
 ### The stack, in one picture
 
 ```
-   AI client (Gemini Desktop / Antigravity)              [Step 3]
+   Antigravity (the "waouh" client)                        [Step 3]
         |   speaks MCP over SSE, authenticates as a SELLER
         v
    listings-api (TP1, port 8080)
@@ -298,7 +298,7 @@ concern: **how a tool reports a business error to the LLM without a 500.**
 
 | # | Requirement |
 |---|---|
-| 3.1 | An MCP-capable client (Gemini Desktop / Antigravity, Claude Desktop, or any **SSE** MCP client) is **registered** against `http://localhost:8080/sse` and **carries the SELLER Basic header**. |
+| 3.1 | An MCP-capable client (**Antigravity**, recommended — or Claude Desktop / any **SSE** MCP client) is **registered** against `http://localhost:8080/sse` and **carries the SELLER Basic header**. |
 | 3.2 | Once registered, the client shows **your 2 tools** in its tool list (not a built-in). |
 | 3.3 | A **read** prompt (e.g. *"what do you have in sports under 500?"*, *"what is listing 1?"*) results in **your Java running** and the client **rendering the data** in natural language. |
 | 3.4 | The client's reported data **matches** `curl GET /listings/{id}` (no value is invented by the client). |

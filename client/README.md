@@ -1,9 +1,15 @@
 # How to use this client config
 
 This is the [client-side config](./mcp-client.json) to paste into your
-AI client (Gemini Desktop / Antigravity, Claude Desktop, or any SSE MCP
-client). It registers **this TP's** MCP server at `http://localhost:8080/sse`,
+AI client — **Antigravity** (recommended; Google's tool, signs in with a
+Google account) or any other MCP-over-SSE client (Claude Desktop, …). It
+registers **this TP's** MCP server at `http://localhost:8080/sse`,
 with **Basic auth** (TP1 default-deny is **preserved** — Step 1.1-1.2).
+
+> **Note:** Antigravity ships its own MCP registration UI — if it accepts
+> the JSON directly (name/url/headers), paste the block from
+> [`mcp-client.json`](./mcp-client.json) as-is. If it uses a different field
+> layout, keep the **same three facts** listed in section 2 below.
 
 ## Required changes before pasting
 

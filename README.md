@@ -1,5 +1,21 @@
 # TP IA — MCP server + Gemini in the Spring Boot API
 
+> ## ⚠️ Before you start — you need a Google account
+>
+> This TP uses Google's AI, so **each of you needs a Google account** to
+> obtain a **free API key**:
+>
+> - **Antigravity (Step 3)** is **Google's** code tool — it signs you in with
+>   a Google account and lets you register the local MCP server.
+> - **Gemini key (Step 5 / bonus)** — the *free-tier* key comes from
+>   **Google AI Studio**: <https://aistudio.google.com/apikey> (same Google
+>   account). Create it **once, before the session**; paste it into the
+>   environment variable `GEMINI_API_KEY` (it is **never** committed).
+>
+> If you have **no Google account**, set one up before the TP — both the
+> client and the bonus key depend on it. The free tier is generous enough for
+> a whole class during a 5-6 h session.
+
 Follow-up to the Spring Boot TP (TP1, `../springboot/`). We take the **TP1
 listings API** and add an **AI layer**: the API becomes an **MCP (Model
 Context Protocol) server** — its read/write methods are exposed as *tools* —
@@ -12,7 +28,7 @@ What each piece is, and who owns it:
 | Piece | What it is | Lives in |
 |---|---|---|
 | **MCP server** | Your Spring Boot app exposing `@Tool` methods over SSE | **`../springboot/`** (a new `ai` package) |
-| **MCP client ("waouh")** | **Gemini Desktop / Antigravity**, a local app that talks MCP | on the student's machine — config provided in `client/` |
+| **MCP client ("waouh")** | **Antigravity** (or any MCP-over-SSE client), a local app that talks MCP | on the student's machine — config provided in `client/` |
 | **Gemini** | Google's model (free Google AI Studio key), called from the API | remote API, no local service |
 
 There is **no new Docker stack** and **no port change**. The API stays on
@@ -26,9 +42,8 @@ artifact on the host is the **AI client** you point at `http://localhost:8080`.
 ## How the pieces fit
 
 ```
-   Gemini Desktop /
-   Antigravity    ----  GET  http://localhost:8080/sse          (open the stream)
-   (your "waouh") ----  POST http://localhost:8080/mcp/message  (every JSON-RPC call:
+   Antigravity     ----  GET  http://localhost:8080/sse          (open the stream)
+   (your "waouh")  ----  POST http://localhost:8080/mcp/message  (every JSON-RPC call:
                          initialize, tools/list, tools/call)   read tools + write tool)
                             ^
                             |  same Spring app as TP1 (port 8080)
@@ -58,9 +73,10 @@ TP1's ports or network changes for this TP.
   is not at that state, finish it first — it is an independent TP.
 - `docker compose version` (the base, `../springboot`, must run).
 - JDK 27 + Maven 3.9+ (already installed for TP1).
-- **One** **AI client** that speaks MCP over HTTP/SSE and that you can register
-  a local server in: **Gemini Desktop** (with its code space
-  **Antigravity**) or an equivalent MCP desktop client.
+- **Antigravity** (recommended — Step 3) on the student's machine. It signs in
+  with a Google account and lets you register a local MCP server. (Any
+  MCP-over-SSE client works — e.g. Claude Desktop — but the lab is built
+  around Antigravity.)
 - **Ports free on the host:** `8080` (the API + MCP) · `5435` (TP1 Postgres).
 - A **free Google AI Studio API key** for the bonus (Step 5):
   <https://aistudio.google.com/apikey>. Keep it in an **environment variable**
@@ -109,13 +125,13 @@ The full handshake, `tools/list`, and hand-written `tools/call` are in
 
 ### 3) Connect the AI client (Step 3 — the "waouh")
 
-Point **Gemini Desktop / Antigravity** at the local server. The exact config
-snippet to paste — **including the HTTP Basic header** (we are **not** opening
-the MCP routes to the world; they keep TP1's default-deny) — is in
+Point **Antigravity** (or any MCP client) at the local server. The exact
+config to paste — **including the HTTP Basic header** (the MCP routes keep TP1's
+default-deny and are **not** opened to the world) — is in
 [`client/mcp-client.json`](client/mcp-client.json). The client authenticates as
 a specific **SELLER** (a TP1 account you already have). Then ask, in natural
-in natural language, e.g. *"what do you have in sports under 500?"* or
-*"change the price of my first listing to 320"*). The client picks the right
+language, e.g. *"what do you have in sports under 500?"* or
+*"change the price of my first listing to 320"*. The client picks the right
 `@Tool`, your code runs, and the answer comes back in natural language.
 
 > Security lesson — **the write tool respects TP1 ownership**: even though the
