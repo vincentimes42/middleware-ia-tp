@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "listings": {
+      "type": "sse",
+      "url": "http://localhost:8080/sse",
+      "headers": {
+        "Authorization": "Basic YWxpY2VAdGVzdDpzZWNyZXQxMjM="
+      }
+    }
+  }
+}
