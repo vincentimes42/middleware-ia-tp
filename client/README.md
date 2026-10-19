@@ -28,13 +28,10 @@ with **Basic auth** (TP1 default-deny is **preserved** — Step 1.1-1.2).
    - `url: "http://localhost:8080/sse"`,
    - the `Authorization` header above.
 
-> **Why a Basic header here at all:** TP1's `SecurityConfig` requires
-> authentication on every non-permitted route; `/sse` and `/mcp/message`
-> fall under that rule (they are *not* in the `permitAll` matcher). That is
-> the **security decision of this TP** (see `exercise.md` Step 1.2): the
-> AI client authenticates **as a SELLER**, so *the write tool still enforces
-> TP1 ownership*. Opening these routes to the world would be a 4xx-level
-> mistake (a 500 where it should be a 403).
+> **Why there is an `Authorization` header at all:** the MCP routes are **not**
+> opened to the world — they keep TP1's default-deny (Step 1.2). The header means
+> "act as this SELLER", so the write tool still enforces TP1 ownership. Read the
+> *why* in [`exercise.md` Step 1](../exercise.md); this file is only the *how*.
 
 ## Where this config lives for the student
 

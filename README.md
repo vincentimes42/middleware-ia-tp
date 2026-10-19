@@ -88,6 +88,55 @@ TP1's ports or network changes for this TP.
 
 ## Run
 
+### 0) Required base edit — `../springboot/pom.xml` and `application.yml`
+
+The TP's Java lives in your copy of `../springboot` (this repo ships **no Java**;
+`client/` and `docs/` here are the config + verification, the way `../keycloak/`
+ships `realm/` and `../monitoring/` ships the config YAMLs).
+
+Only **two additive** edits are required — one in `pom.xml`, one in
+`application.yml`:
+
+**`pom.xml` — add both dependencies** (the Spring AI MCP server, and the Gemini
+SDK for the bonus):
+
+```xml
+<!-- (a) MCP server over SSE — Spring AI 2.0.1 (Boot-4 line, matches TP1's Boot 4.1.1) -->
+<dependency>
+    <groupId>org.springframework.ai</groupId>
+    <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
+    <version>2.0.1</version>
+</dependency>
+
+<!-- (b) Google Gemini SDK — used by Steps 5-6 (BONUS) to call the model -->
+<dependency>
+    <groupId>com.google.genai</groupId>
+    <artifactId>google-genai</artifactId>
+    <version>1.78.0</version>
+</dependency>
+```
+
+**`application.yml` — append the `spring.ai.mcp.server` block** (+ optional AI
+settings):
+
+```yaml
+spring:
+  ai:
+    mcp:
+      server:
+        name: listings-api          # shown in serverInfo.name of the handshake
+        protocol: SSE               # enables the SSE autoconfig (/sse + /mcp/message)
+# Bonus (Steps 5-6): optional
+listings:
+  ai:
+    model: gemini-2.0-flash         # any gemini-*-flash on your AI Studio free key
+    timeout-ms: 10000
+```
+
+That is the **entire** required change to `../springboot` — no new container,
+no new network, no new port, and **no change to `docker-compose.yml`** (unlike
+the Keycloak / Monitoring TPs, which add containers).
+
 ### 1) Start the TP1 base (unchanged)
 
 ```bash
@@ -98,11 +147,11 @@ curl -fsS http://localhost:8080/actuator/health     # API on 8080
 
 ### 2) Make the API an MCP server (Steps 1-2)
 
-The work is **code in `../springboot`** (a new `com.app.listings.ai` package,
-`@Tool` methods + config), exactly the "required TP1 edit" pattern used by the
-other TPs. The concrete additions are documented per step in `exercise.md`; the
-canonical `application.yml` block and the two `pom.xml` dependencies are in
-**Appendix A/B of `exercise.md`** and mirrored in `docs/verification.md`.
+The work is **code in `../springboot`** (a new `com.app.listings.ai` package).
+The **required `pom.xml` + `application.yml` additions** are the dedicated
+[`0) Required base edit`](#0-required-base-edit----springspringbtpomxml-and-applicationyml)
+above; the **how/why per step** (the `@Tool` methods, the `ToolCallbackProvider`
+bean) is in `exercise.md` Steps 1-2.
 
 After editing, restart the base:
 
@@ -160,12 +209,13 @@ cd ../springboot && docker compose down          # keep the DB
 ```
 IA/
 ├── .gitignore
-├── README.md                 # this file (operational)
-├── exercise.md               # the statement (5-6h, core 1-4 + bonus 5-6)
+├── README.md                 # this file
+├── exercise.md               # the statement (5-6h, core 1-4 + bonus 5-6 + delivery 7)
 ├── client/
-│   └── mcp-client.json       # the config to paste in the AI client (Step 3)
+│   ├── README.md             # the "waouh" client setup (Step 3)
+│   └── mcp-client.json       # the config to paste into your AI client
 └── docs/
-    └── verification.md       # raw-MCP handshake + Gemini curl, copy-pasteable
+    └── verification.md       # raw MCP handshake + Gemini curl, copy-pasteable
 
 ../springboot/ (the code you extend — NOT in this repo)
 ├── pom.xml                   # +2 deps (spring-ai mcp server, google-genai) [Step 1 / 5]

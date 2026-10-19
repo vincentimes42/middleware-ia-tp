@@ -57,7 +57,7 @@ whole idea of the day.
 
 ---
 
-## Before you start — the two tools
+## Before you start — the two libraries
 
 New to MCP or to Spring AI? This ~3-minute model makes the steps below click.
 
@@ -192,7 +192,7 @@ concern: **how a tool reports a business error to the LLM without a 500.**
 
 ---
 
-## Step 1 — Bring up the MCP server `CORE`
+## Step 1 - Bring up the MCP server `CORE`
 
 > **User story** — *As a **developer**, I want my TP1 API to **be an MCP server
 > over SSE**, so that an **AI client can discover and call my code** in the
@@ -215,17 +215,6 @@ concern: **how a tool reports a business error to the LLM without a 500.**
 | `application.yml` | (none) | **add** the `spring.ai.mcp.server` block — `name: listings-api`, `protocol: SSE` (Appendix A) |
 | `SecurityConfig` | permits `/auth/register`, `/actuator/**`, `/v3/api-docs/**`, `/swagger-ui/**`; `anyRequest().authenticated()` | **no change** — `/sse` and `/mcp/message` fall under `anyRequest().authenticated()`, so they **keep Basic auth** (that is the point) |
 
-### Hints
-
-- Both the `pom.xml` dependency and the `application.yml` block are in
-  **Appendix A** — this is the **only** prescribed config for the server.
-- Verify without the AI client, raw `curl`: [`docs/verification.md` §1](docs/verification.md).
-- SSE endpoints are **defaults** of the Spring AI SSE autoconfiguration
-  (`/sse` + `/mcp/message`); you do not need to declare them.
-- If `GET /sse` returns **401**, that is **correct** — add a SELLER
-  `Authorization: Basic …` header (see `docs/verification.md`), do **not**
-  permit the route.
-
 ### Acceptance checklist
 
 - [ ] `GET http://localhost:8080/sse` **without** a Basic credential → **401**
@@ -233,9 +222,22 @@ concern: **how a tool reports a business error to the LLM without a 500.**
 - [ ] An `initialize` call returns `result.serverInfo.name = listings-api`
 - [ ] `tools/list` currently returns an **empty** tool list (you have no tools yet — Step 2 adds them)
 
+### Hints
+
+- Paste the two dependencies + the `application.yml` block from
+  **`README.md` → "0) Required base edit"** (the *what* and *why* of the two
+  artifacts is in **Appendix A**) — this is the **only** prescribed config for
+  the server section.
+- Verify without the AI client, raw `curl`: [`docs/verification.md` §1](docs/verification.md).
+- SSE endpoints are **defaults** of the Spring AI SSE autoconfiguration
+  (`/sse` + `/mcp/message`); you do not need to declare them.
+- If `GET /sse` returns **401**, that is **correct** — add a SELLER
+  `Authorization: Basic …` header (see `docs/verification.md`), do **not**
+  permit the route.
+
 ---
 
-## Step 2 — Expose two read tools `CORE`
+## Step 2 - Expose two read tools `CORE`
 
 > **User stories** —
 >
@@ -262,6 +264,14 @@ concern: **how a tool reports a business error to the LLM without a 500.**
 | (new) `com.app.listings.ai.tools.ListingTools` | — | a `@Component` with **two public methods**: one per tool, each carrying **`@Tool(description="…")`** on the method and **`@ToolParam(description="…")`** on the parameters. The body **delegates to TP1's `ListingService`** |
 | (new) `com.app.listings.ai.tools.AiToolsConfig` | — | a `@Configuration` that declares **one `ToolCallbackProvider` bean** built with `MethodToolCallbackProvider.builder().toolObjects(listingTools).build()` |
 
+### Acceptance checklist
+
+- [ ] `tools/list` shows **`get_listing`** and **`list_listings`**, each with a non-trivial `description` and an `inputSchema`
+- [ ] `tools/call get_listing {id}` body **matches** `curl GET /listings/{id}` field-for-field
+- [ ] `tools/call list_listings {category, maxPrice}` returns **the same set of ids** as the REST endpoint (side-by-side)
+- [ ] `grep -rn "@Tool(" ../springboot/src/main/java` — both tools are in `com.app.listings.ai.tools`
+- [ ] grep for `listingService\.\|listingRepository\.` inside the tool class — the tools **delegate to TP1's service** (no direct SQL bypass)
+
 ### Hints
 
 - `@Tool` and `@ToolParam` live in **`org.springframework.ai.tool.annotation`**
@@ -278,17 +288,9 @@ concern: **how a tool reports a business error to the LLM without a 500.**
 - Verify: [`docs/verification.md` §2](docs/verification.md) — `tools/list` + two
   hand-written `tools/call`s you can paste into the SSE session.
 
-### Acceptance checklist
-
-- [ ] `tools/list` shows **`get_listing`** and **`list_listings`**, each with a non-trivial `description` and an `inputSchema`
-- [ ] `tools/call get_listing {id}` body **matches** `curl GET /listings/{id}` field-for-field
-- [ ] `tools/call list_listings {category, maxPrice}` returns **the same set of ids** as the REST endpoint (side-by-side)
-- [ ] `grep -rn "@Tool(" ../springboot/src/main/java` — both tools are in `com.app.listings.ai.tools`
-- [ ] grep for `listingService\.\|listingRepository\.` inside the tool class — the tools **delegate to TP1's service** (no direct SQL bypass)
-
 ---
 
-## Step 3 — Connect the AI client and "waouh" it `CORE`
+## Step 3 - Connect the AI client and "waouh" it `CORE`
 
 > **User story** — *As a **binôme**, I want an **AI client to call my tools in
 > natural language** and answer in plain English, so that I **see the whole MCP
@@ -306,19 +308,11 @@ concern: **how a tool reports a business error to the LLM without a 500.**
 
 ### Client config to paste
 
-Copy the snippet from [`client/mcp-client.json`](client/mcp-client.json). It
-carries the **Basic header** (`alice@test` / `secret123`, one of the TP1
-sellers). Do **not** remove that header — that would undo Step 1.2.
-
-### Hints
-
-- Register the server in the client's MCP settings (paste the JSON above).
-- **Stay on read prompts for this step** — writes are Step 4.
-- If the client shows **no tools**, go back to Step 1's handshake first: the
-  `endpoint` event must arrive before any `tools/list` can be answered.
-- To prove your Java runs (not a built-in), ask the client for a field you
-  control (e.g. the exact price) and compare to a **side-by-side `curl GET
-  /listings/{id}`** in a terminal.
+See [`client/mcp-client.json`](client/mcp-client.json) and
+[`client/README.md`](client/README.md) for the exact JSON and how to adapt it
+if your client uses a different field layout. The **key point** for this step:
+the client authenticates as **one specific SELLER** (a TP1 account) — do not
+remove the `Authorization` header.
 
 ### Acceptance checklist (this step is the *waouh*)
 
@@ -327,24 +321,32 @@ sellers). Do **not** remove that header — that would undo Step 1.2.
 - [ ] A client configured **without** the Basic header → the client **cannot** list tools (handshake fails with 401 / "unauthorized")
 - [ ] The tool is *chosen* by the client, not hardcoded into the prompt (change the question and the client should still pick the right one)
 
+### Hints
+
+- Register the server in the client's MCP settings; the JSON to paste is in
+  [`client/mcp-client.json`](client/mcp-client.json).
+- **Stay on read prompts for this step** — writes are Step 4.
+- If the client shows **no tools**, go back to Step 1's handshake first: the
+  `endpoint` event must arrive before any `tools/list` can be answered.
+- To prove your Java runs (not a built-in), ask the client for a field you
+  control (e.g. the exact price) and compare to a **side-by-side `curl GET
+  /listings/{id}`** in a terminal.
+
+- [ ] The client lists **both tools** by name before you ask a question
+- [ ] A plain-English read question yields an answer whose values **equal** a raw `curl` (screenshot or transcript in the team README)
+- [ ] A client configured **without** the Basic header → the client **cannot** list tools (handshake fails with 401 / "unauthorized")
+- [ ] The tool is *chosen* by the client, not hardcoded into the prompt (change the question and the client should still pick the right one)
+
 ---
 
-## Step 4 — One write tool that respects ownership `CORE`
+## Step 4 - One write tool that respects ownership `CORE`
 
 > **User story** — *As a **platform developer**, I want the LLM to be able to
 > **call a write tool** but with **the same rules as the API**: `404` if
 > unknown, `403` if not mine, `422` if the argument is invalid — so that an
 > LLM **cannot do more than I allow**.*
 
-### Behavior (the *one* full behavior matrix for this TP — put it here once, not per step)
-
-| Caller (Basic cred) | `get_listing {id}` | `list_listings` | `change_listing_price` **own** | `change_listing_price` **other** | `change_listing_price` **unknown** | `change_listing_price newPrice<=0` |
-|---|---|---|---|---|---|---|
-| **Anonymous** | **401** | **401** | **401** | **401** | **401** | **401** |
-| **SELLER (owner)** | 200 + body | 200 + list | **200/OK** + new price persisted in DB | — | **404** (as tool result) | **422 `newPrice`** (as tool result) |
-| **SELLER (non-owner)** | 200 (public fields) | 200 | — | **403** (as tool result) | **404** (as tool result) | **422 `newPrice`** (as tool result) |
-
-### Requirements
+### Behavior
 
 | # | Requirement |
 |---|---|
@@ -355,26 +357,27 @@ sellers). Do **not** remove that header — that would undo Step 1.2.
 | 4.5 | `newPrice <= 0`: the tool returns a **result whose text starts with `422 newPrice`**. |
 | 4.6 | The tool **delegates** to TP1's `ListingService.update(...)` (or an equivalent method) — **not** to raw SQL against `listing`. |
 
-### Changes to make in TP1 (`../springboot`)
+### Expected behavior matrix (the TP's one full matrix — here, not per step)
 
-| What | Before (TP1) | After (this step) |
+| Caller (Basic cred) | `get_listing {id}` | `list_listings` | `change_listing_price` **own** | `change_listing_price` **other** | `change_listing_price` **unknown** | `change_listing_price newPrice<=0` |
+|---|---|---|---|---|---|---|
+| **Anonymous** | **401** | **401** | **401** | **401** | **401** | **401** |
+| **SELLER (owner)** | 200 + body | 200 + list | **200/OK** + new price persisted in DB | — | **404** (as tool result) | **422 `newPrice`** (as tool result) |
+| **SELLER (non-owner)** | 200 (public fields) | 200 | — | **403** (as tool result) | **404** (as tool result) | **422 `newPrice`** (as tool result) |
+
+### Changes to make in the TP1 (`../springboot`)
+
+| What | From (TP1) | To (this step) |
 |---|---|---|
-| `ListingTools` (added in Step 2) | 2 read tools | **+ 1 write tool** `change_listing_price(Long id, BigDecimal newPrice)` that: resolves the listing via TP1, applies TP1's **ownership check** (via `listingService`), validates `newPrice > 0`, delegates the persistence, and maps thrown TP1 exceptions into a **tool result string** (`(404) …`, `(403) …`, `(422 newPrice)`) |
-| (optional) `com.app.listings.ai.tools.AiErrorMapper` | — | a small helper: `String toToolResult(Throwable e)` that returns the status-prefixed string. Keeps the three cases in one place. |
+| `ListingTools` (Step 2) | 2 read tools | **+ 1 write tool** `change_listing_price(Long id, BigDecimal newPrice)` that resolves the listing via TP1, applies TP1's **ownership check**, validates `newPrice > 0`, delegates the persistence, and maps thrown TP1 exceptions into a **tool result string** (`(404) …`, `(403) …`, `(422 newPrice)`) |
+| (optional) `com.app.listings.ai.tools.AiErrorMapper` | — | a small helper: `String toToolResult(Throwable e)` that returns the status-prefixed string — keeps the three cases in one place |
 
-> **Why the tool, not the service, maps the exception:** the **service** still
-> throws the TP1 exception (`ResourceNotFoundException` / a `403` equivalent)
-> — that is where TP1's business rule is enforced. The **tool** catches it and
-> converts it into a **string the LLM can read**. That two-step split keeps the
-> *business rule* in the *service* (same as TP1) and the *AI-facing shape* in
-> the *tool* (new in this TP).
-
-### Hints
-
-- In the tool body, wrap the call in `try { … } catch (IllegalStateException | AccessDeniedException ex) { return mapper.toToolResult(ex); }` — **do not rethrow** as a 500.
-- TP1's likely exceptions: `AccessDeniedException` (Spring Security), a custom `ResourceNotFoundException`, or a `MethodArgumentNotValidException`-style `IllegalArgument`. Whatever TP1 Step 3 already throws — **reuse it**, do not invent a new type.
-- For a `422` response from a missing/invalid `newPrice`, throw a `jakarta.validation`-style exception **in the tool body** before delegating, and map it to `(422 newPrice)`.
-- `docs/verification.md` §3 walks all three cases (valid / non-owner / unknown / bad price) with copy-paste `curl`s.
+> **Why the tool, not the service, maps the exception:** the **service**
+> still throws the TP1 exception (`ResourceNotFoundException` / a `403`
+> equivalent) — that is where TP1's business rule is enforced. The **tool**
+> catches it and converts it into a **string the LLM can read**. That two-step
+> split keeps the *business rule* in the *service* (same as TP1) and the
+> *AI-facing shape* in the *tool* (new in this TP).
 
 ### Acceptance checklist
 
@@ -385,9 +388,16 @@ sellers). Do **not** remove that header — that would undo Step 1.2.
 - [ ] `newPrice = -5`: the **tool result text** contains `422` and `newPrice`
 - [ ] `grep -n "AccessDeniedException\|ResourceNotFoundException" ListingTools.java` — both appear in a **catch clause**, not thrown as a raw 500
 
+### Hints
+
+- In the tool body, wrap the call in `try { … } catch (IllegalStateException | AccessDeniedException ex) { return mapper.toToolResult(ex); }` — **do not rethrow** as a 500.
+- TP1's likely exceptions: `AccessDeniedException` (Spring Security), a custom `ResourceNotFoundException`, or a `MethodArgumentNotValidException`-style `IllegalArgument`. Whatever TP1 Step 3 already throws — **reuse it**, do not invent a new type.
+- For a `422` response from a missing/invalid `newPrice`, throw a `jakarta.validation`-style exception **in the tool body** before delegating, and map it to `(422 newPrice)`.
+- `docs/verification.md` §3 walks all three cases (valid / non-owner / unknown / bad price) with copy-paste `curl`s.
+
 ---
 
-## Step 5 — Flip roles: call Gemini from the API `BONUS`
+## Step 5 - Flip roles: call Gemini from the API `BONUS`
 
 > **User story** — *As a **Seller**, I want to click one button and get a
 > **coherent 2-sentence description** for a listing based on its own `title`,
@@ -415,6 +425,14 @@ sellers). Do **not** remove that header — that would undo Step 1.2.
 | (new) `com.app.listings.web.controller.AiListingController` | — | a `@RestController` for **`POST /listings/{id}/ai-description`**; body: resolve the listing (TP1), apply the **ownership check** (TP1), read the `title`/`category`/`price`, call `GeminiClient.describe(...)`, return the JSON shape above |
 | `GlobalExceptionHandler` (TP1) | (handles TP1 cases) | **+** a `@ExceptionHandler(GeminiUnavailableException)` returning **503** with the JSON shape above |
 
+### Acceptance checklist
+
+- [ ] `POST /listings/{id}/ai-description` (owner + key) → **200** + non-empty `description` that uses the listing's `title` / `category` / `price` (no invented values)
+- [ ] `POST /listings/{id}/ai-description` (non-owner) → **403** · (unknown id) → **404**
+- [ ] `POST /listings/{id}/ai-description` **without** the key in the env → **503** + a JSON body (never a 500 stack trace)
+- [ ] `git -C ../springboot grep -Rn -i "GEMINI_"` — only **`getenv("GEMINI_API_KEY")`** matches; zero literal keys in source / compose / `pom.xml`
+- [ ] `docker inspect listings-api | grep -i GEMINI` returns **nothing** (the container is **not** baked with a key)
+
 ### Hints
 
 - **The client (exact):** `new com.google.genai.Client(apiKey)` →
@@ -434,17 +452,9 @@ sellers). Do **not** remove that header — that would undo Step 1.2.
 - **Ownership** (5.1): **reuse** TP1's `listingService` owner check — do not
   re-implement it in the controller.
 
-### Acceptance checklist
-
-- [ ] `POST /listings/{id}/ai-description` (owner + key) → **200** + non-empty `description` that uses the listing's `title` / `category` / `price` (no invented values)
-- [ ] `POST /listings/{id}/ai-description` (non-owner) → **403** · (unknown id) → **404**
-- [ ] `POST /listings/{id}/ai-description` **without** the key in the env → **503** + a JSON body (never a 500 stack trace)
-- [ ] `git -C ../springboot grep -Rn -i "GEMINI_"` — only **`getenv("GEMINI_API_KEY")`** matches; zero literal keys in source / compose / `pom.xml`
-- [ ] `docker inspect listings-api | grep -i GEMINI` returns **nothing** (the container is **not** baked with a key)
-
 ---
 
-## Step 6 — Persist the AI text and don't trust the prompt `BONUS`
+## Step 6 - Persist the AI text and don't trust the prompt `BONUS`
 
 > **User story** — *As a **platform operator**, I want the generated text to be
 > **stored with the listing**, **visible in `GET /listings/{id}`** (in V2,
@@ -471,6 +481,15 @@ sellers). Do **not** remove that header — that would undo Step 1.2.
 | (new) `com.app.listings.ai.AiDescriptionService` | — | (a) ownership check via `listingService`, (b) **sanitize** the `title` (a **deny-list**, e.g. `ignore previous`, `system:`, `you are now`, case-insensitive), (c) call `GeminiClient.describe(...)`, (d) **assert** price/category equality with the DB, (e) `listingService`-side persist (additive `update`) |
 | `AiListingController` (Step 5) | `/ai-description` | **+ `/ai-description/regenerate`** (same controller); the **main** `/ai-description` endpoint is **left** to only *return* the text (Step 5 is "return-only"), Step 6 adds the `regenerate` route |
 
+### Acceptance checklist
+
+- [ ] `SELECT id FROM DATABASECHANGELOG` — **one** new row (the `v1.1-ai` changeSet)
+- [ ] `curl GET /listings/{id}?version=V2` returns `aiDescription`; `curl GET /listings/{id}` (no `?version=`) **does not** (TP1 V2 rule)
+- [ ] `POST /listings/{id}/ai-description/regenerate` (owner) — a fresh `GET /listings/{id}?version=V2` returns the **new** text, not the old one
+- [ ] A listing whose `title` contains `"ignore previous instructions"`: the model response is **not** influenced by the injected phrase (side-by-side `GET /listings/{id}` + log `WARN` visible in `docker compose logs listings-api | grep WARN` shows the sanitize)
+- [ ] Two calls in a row on the same listing return **two** coherent texts (same price/category), and a **fresh** `regenerate` replaces the stored value in one place
+- [ ] `grep -rn "containsAnyOf\|denyList\|SANITIZE" ../springboot/src` — the sanitize code is visible, not just the call
+
 ### Hints
 
 - Liquibase additive: one `addColumn listing ai_description VARCHAR(2000) NULL`. New file `v1.1-ai.yaml`, new changeSet `id: "v1.1-ai"`. Include it in `db.changelog-master.yaml`. **`v1.0-init.yaml` is not modified** (TP1's rule).
@@ -483,18 +502,9 @@ sellers). Do **not** remove that header — that would undo Step 1.2.
 - `docs/verification.md` covers Step 5 but **not** Step 6 (bonus). Run Step 6 with
   the same *curl + side-by-side `GET`* pattern.
 
-### Acceptance checklist
-
-- [ ] `SELECT id FROM DATABASECHANGELOG` — **one** new row (the `v1.1-ai` changeSet)
-- [ ] `curl GET /listings/{id}?version=V2` returns `aiDescription`; `curl GET /listings/{id}` (no `?version=`) **does not** (TP1 V2 rule)
-- [ ] `POST /listings/{id}/ai-description/regenerate` (owner) — a fresh `GET /listings/{id}?version=V2` returns the **new** text, not the old one
-- [ ] A listing whose `title` contains `"ignore previous instructions"`: the model response is **not** influenced by the injected phrase (side-by-side `GET /listings/{id}` + log `WARN` visible in `docker compose logs listings-api | grep WARN` shows the sanitize)
-- [ ] Two calls in a row on the same listing return **two** coherent texts (same price/category), and a **fresh** `regenerate` replaces the stored value in one place
-- [ ] `grep -rn "containsAnyOf\|denyList\|SANITIZE" ../springboot/src` — the sanitize code is visible, not just the call
-
 ---
 
-## Step 7 — Delivery
+## Step 7 - Final Integration
 
 | # | Requirement |
 |---|---|
@@ -527,43 +537,22 @@ sellers). Do **not** remove that header — that would undo Step 1.2.
 
 ## Appendix A — the two dependencies + the application.yml block
 
-**The `pom.xml` additions** (both *additive*; do not remove the TP1 deps):
+The **code you paste is not in this file** — by design, it lives in the
+**operational** [`README.md` § "0) Required base edit"](README.md), exactly
+where the Keycloak and Monitoring TPs put their base edits. This appendix is
+the **reference** for *what* the two additions are and *why*.
 
-```xml
-<!-- MCP server over SSE (Spring AI 2.0.1, Boot-4 line — matches TP1's Boot 4.1.1) -->
-<dependency>
-    <groupId>org.springframework.ai</groupId>
-    <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
-    <version>2.0.1</version>
-</dependency>
+| Addition | Coordinates / key | Why |
+|---|---|---|
+| MCP server starter | `org.springframework.ai:spring-ai-starter-mcp-server-webmvc:2.0.1` | exposes the MCP **server** over SSE (`/sse`, `/mcp/message`). Matches TP1's **Boot 4.1.1** (Spring AI **2.0** is the Boot-4 line). |
+| Gemini SDK | `com.google.genai:google-genai:1.78.0` | Steps 5-6 **call** the model. Spring AI does **not** ship a Gemini starter — this is a separate library. |
+| `application.yml` | `spring.ai.mcp.server.name/protocol=SSE` (+ `listings.ai.model/timeout-ms`) | `name` shows in the handshake `serverInfo.name`; `protocol: SSE` enables the SSE transport. |
 
-<!-- Google Gemini SDK (Steps 5-6; the "free tier" is Google AI Studio) -->
-<dependency>
-    <groupId>com.google.genai</groupId>
-    <artifactId>google-genai</artifactId>
-    <version>1.78.0</version>
-</dependency>
-```
+> **One owner per fact:** `pom.xml` + `application.yml` code → **README**; this
+> appendix explains *which* artifact and *which* key and *why*. No new container,
+> network, or port — unlike the Keycloak / Monitoring TPs, this TP does **not**
+> add a `docker-compose.yml`.
 
-**The `application.yml` block** to add in `../springboot/src/main/resources/application.yml`:
-
-```yaml
-spring:
-  ai:
-    mcp:
-      server:
-        name: listings-api          # used by serverInfo.name in the handshake
-        protocol: SSE               # enables the SSE autoconfig (/sse + /mcp/message)
-# Bonus (Steps 5-6):
-listings:
-  ai:
-    model: gemini-2.0-flash         # any gemini-*-flash on your free key
-    timeout-ms: 10000
-```
-
-> That is the **entire** config surface for this TP — the **server** (Step 1)
-> and the **client call** (Steps 5-6). No new container, no new network, no new
-> port.
 
 ## Appendix B — the AI client config
 
