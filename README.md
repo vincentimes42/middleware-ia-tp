@@ -88,6 +88,15 @@ TP1's ports or network changes for this TP.
 
 ## Run
 
+> **Two repos, two folders.** The TP1 repo (the Spring Boot app) and this
+> IA repo are **side by side** (any folder names). Set these once per
+> terminal so the commands below do not need hard-coded paths:
+>
+> ```bash
+> export TP1_DIR="/path/to/your/tps-1-repo"     # the Spring Boot app repo
+> export IA_DIR="/path/to/ia-repo"              # this IA repo
+> ```
+
 ### 0) Required base edit — `../springboot/pom.xml` and `application.yml`
 
 The TP's Java lives in your copy of `../springboot` (this repo ships **no Java**;
@@ -140,7 +149,7 @@ the Keycloak / Monitoring TPs, which add containers).
 ### 1) Start the TP1 base (unchanged)
 
 ```bash
-cd ../springboot
+cd "$TP1_DIR"
 docker compose up -d
 curl -fsS http://localhost:8080/actuator/health     # API on 8080
 ```
@@ -156,7 +165,7 @@ bean) is in `exercise.md` Steps 1-2.
 After editing, restart the base:
 
 ```bash
-cd ../springboot
+cd "$TP1_DIR"
 docker compose up -d --build listings-api && docker compose ps
 ```
 
@@ -192,7 +201,7 @@ language, e.g. *"what do you have in sports under 500?"* or
 
 ```bash
 export GEMINI_API_KEY="your-AI-Studio-key"
-# from ../springboot so the env reaches the container on a rebuild:
+# from "$TP1_DIR" so the env reaches the container on a rebuild:
 docker compose up -d --build listings-api
 curl -s -X POST http://localhost:8080/listings/1/ai-description
 ```
@@ -200,7 +209,7 @@ curl -s -X POST http://localhost:8080/listings/1/ai-description
 ### 5) Stop
 
 ```bash
-cd ../springboot && docker compose down          # keep the DB
+cd "$TP1_DIR" && docker compose down              # keep the DB
 # (add -v to wipe the Postgres data)
 ```
 

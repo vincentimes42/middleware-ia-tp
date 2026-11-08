@@ -1,15 +1,24 @@
 # TP IA — stack verification
 
 This file is a **live verification** of the MCP server + the Gemini call.
-After `docker compose up -d` in `../springboot`, run each section in order.
+After `docker compose up -d` in the TP1 repo, run each section in order.
 Every section ends with a `curl` that should return data — that is the
-evidence the pipeline actually works.
+evidence the pipeline actually works. All commands are **copy-pasteable**.
 
-> **Prerequisite:** the TP1 base (`../springboot`) is up at
-> `http://localhost:8080/actuator/health` and the **two required base edits**
-> from [`../README.md` § "0) Required base edit"](../README.md#run) are done.
-> If you are verifying before Step 2-4, Sections 1-2 work — the MCP server is
-> up, but `tools/list` is still empty (you have added no tools yet).
+> **Prereq:** the TP1 app (your `springboot` repo) is up at
+> `http://localhost:8080/actuator/health`, **TP1 is green**, and the **two
+> required base edits** from **README §0** are done (the `pom.xml` dep + the
+> `application.yml` `spring.ai.mcp.server` block). If you are verifying before
+> Steps 2-4, Sections 1-2 work — the MCP server is up, but `tools/list` is
+> still empty (you have added no tools yet).
+>
+> **Paths:** the commands below use two variables (set them once per terminal,
+> from the "Run" box of [`README.md`](../README.md)):
+>
+> ```bash
+> export TP1_DIR="/path/to/your/tps-1-repo"     # the Spring Boot app repo
+> export IA_DIR="/path/to/ia-repo"              # this IA repo
+> ```
 
 ---
 
@@ -153,8 +162,8 @@ anywhere in the repo:
 ```bash
 export GEMINI_API_KEY="your-AI-Studio-key"
 
-# from ../springboot so the env reaches the container on a rebuild:
-cd ../springboot && docker compose up -d --build listings-api
+# from "$TP1_DIR" so the env reaches the container on a rebuild:
+cd "$TP1_DIR" && docker compose up -d --build listings-api
 
 # (Step 5: return-only)
 curl -s -X POST http://localhost:8080/listings/1/ai-description \
@@ -187,9 +196,9 @@ Failure paths to spot (the endpoint must **not** 500):
 ## 6) No secrets, no solution (cross-check)
 
 ```bash
-cd ../springboot
+cd "$TP1_DIR"
 # no literal key anywhere in Java / yml / pom / compose
-git grep -ni "GEMINI_API_KEY\|AI_STUDIO\|AI_STUDIO" src pom.xml docker-compose.yml
+git grep -ni "GEMINI_API_KEY\|AI_STUDIO" src pom.xml docker-compose.yml
 # expected: only System.getenv("GEMINI_API_KEY") matches in Java; zero in yml/pom/compose
 
 # the container is not baked with a key even if you did `export` earlier
@@ -201,6 +210,6 @@ docker inspect listings-api --format '{{.Config.Env}}' | grep -i gemini || echo 
 ## 7) Stop
 
 ```bash
-cd ../springboot && docker compose down          # keep the DB
+cd "$TP1_DIR" && docker compose down              # keep the DB
 # (add -v to wipe the Postgres data)
 ```
