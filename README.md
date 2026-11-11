@@ -71,6 +71,7 @@ Services still talk over the shared `middleware` network exactly as in TP1
 - **TP1 is done and green** (Steps 1·2·3·5·6·8: register, CRUD, ownership,
   `?version=V1|V2`). This TP **reuses the TP1 listing business methods**. If TP1
   is not at that state, finish it first — it is an independent TP.
+- Linux or WSL2, Bash terminal ([details](../springboot/README.md#operating-system-and-shell)).
 - `docker compose version` (the base, `../springboot`, must run).
 - JDK 27 + Maven 3.9+ (already installed for TP1).
 - **Antigravity** (recommended — Step 3) on the student's machine. It signs in
@@ -236,6 +237,7 @@ IA/
 │   ├── README.md             # the "waouh" client setup (Step 3)
 │   └── mcp-client.json       # Antigravity mcp_config.json entry (Streamable HTTP + Basic)
 └── docs/
+    ├── primer.md             # MCP, Spring AI, the Gemini SDK, what not to do
     └── verification.md       # raw MCP calls (curl) + Gemini curl, copy-pasteable
 
 ../springboot/ (the code you extend — NOT in this repo)
