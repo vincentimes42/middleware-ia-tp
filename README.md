@@ -14,7 +14,7 @@
 >
 > If you have **no Google account**, set one up before the TP — both the
 > client and the bonus key depend on it. The free tier is generous enough for
-> a whole class during a 5-6 h session.
+> a whole class during the session.
 
 Follow-up to the Spring Boot TP (TP1, `../springboot/`). We take the **TP1
 listings API** and add an **AI layer**: the API becomes an **MCP (Model
@@ -27,12 +27,12 @@ What each piece is, and who owns it:
 
 | Piece | What it is | Lives in |
 |---|---|---|
-| **MCP server** | Your Spring Boot app exposing `@Tool` methods over SSE | **`../springboot/`** (a new `ai` package) |
-| **MCP client ("waouh")** | **Antigravity** (or any MCP-over-SSE client), a local app that talks MCP | on the student's machine — config provided in `client/` |
+| **MCP server** | Your Spring Boot app exposing `@Tool` methods over **Streamable HTTP** (`POST /mcp`) | **`../springboot/`** (a new `ai` package) |
+| **MCP client ("waouh")** | **Antigravity** (or any Streamable-HTTP MCP client), a local app that talks MCP | on the student's machine — config provided in `client/` |
 | **Gemini** | Google's model (free Google AI Studio key), called from the API | remote API, no local service |
 
 There is **no new Docker stack** and **no port change**. The API stays on
-**8080**; the MCP endpoints are extra routes on that same port. The only extra
+**8080**; the MCP endpoint is an extra route on that same port. The only extra
 artifact on the host is the **AI client** you point at `http://localhost:8080`.
 
 > The full pedagogical statement is [`exercise.md`](exercise.md). This file is
@@ -42,29 +42,29 @@ artifact on the host is the **AI client** you point at `http://localhost:8080`.
 ## How the pieces fit
 
 ```
-   Antigravity     ----  GET  http://localhost:8080/sse          (open the stream)
-   (your "waouh")  ----  POST http://localhost:8080/mcp/message  (every JSON-RPC call:
-                         initialize, tools/list, tools/call)   read tools + write tool)
+   Antigravity     ----  POST http://localhost:8080/mcp   (every JSON-RPC call:
+   (your "waouh")         initialize, tools/list, tools/call; header Mcp-Session-Id)
                             ^
-                            |  same Spring app as TP1 (port 8080)
+                            |  same Spring app as TP1 (port 8080), Basic auth
    +-----------------------------------------------------------+
    |                 listings-api (TP1, 8080)                  |
    |   ... TP1 REST endpoints (unchanged) ...                  |
    |   ... POST /listings/{id}/ai-description  (BONUS) ...     |
    +---------------------------^-------------------------------+
-                               |  POST (Google AI Studio)
+                               |  HTTPS (Google AI Studio key)
                                v
-                          Gemini API  gemini-2.0-flash
+                          Gemini API  gemini-flash-latest
 ```
 
-- **SSE stream** = `GET /sse` (server→client events, keeps the session open).
-- **JSON-RPC calls** = `POST /mcp/message` — this is where `tools/list` and
-  `tools/call` actually go. (Spring AI 2.0 also offers a single-endpoint
-  **Streamable HTTP** variant at `POST /mcp`; this TP standardizes on **SSE**.)
+- **One endpoint**, `POST /mcp` (MCP **Streamable HTTP** transport). The
+  `initialize` answer carries an `Mcp-Session-Id` header that the client sends
+  back on every next call.
+- Spring AI also offers the legacy **HTTP+SSE** transport (`GET /sse` +
+  `POST /mcp/message`); this TP does **not** use it: Antigravity does not
+  support it.
 
 Services still talk over the shared `middleware` network exactly as in TP1
-(`listings-postgres`, container name `listings-api`, host `8080`). Nothing about
-TP1's ports or network changes for this TP.
+(`listings-postgres`, container name `listings-api`, host `8080`).
 
 ## Prerequisites
 
@@ -74,17 +74,17 @@ TP1's ports or network changes for this TP.
 - `docker compose version` (the base, `../springboot`, must run).
 - JDK 27 + Maven 3.9+ (already installed for TP1).
 - **Antigravity** (recommended — Step 3) on the student's machine. It signs in
-  with a Google account and lets you register a local MCP server. (Any
-  MCP-over-SSE client works — e.g. Claude Desktop — but the lab is built
-  around Antigravity.)
+  with a Google account and lets you register a local MCP server. (Any MCP
+  client that supports the **Streamable HTTP** transport works, but the lab is
+  built around Antigravity.)
 - **Ports free on the host:** `8080` (the API + MCP) · `5435` (TP1 Postgres).
 - A **free Google AI Studio API key** for the bonus (Step 5):
   <https://aistudio.google.com/apikey>. Keep it in an **environment variable**
   (`GEMINI_API_KEY`) — **never** in code (anti-pattern, see `exercise.md`).
 
-> **Tip:** Keycloak, Monitoring and IA are **alternatives** — all start the same
-> base `listings-api` (same container name), so run **one** at a time. Do not run
-> two AI/identity/observability TPs against the same base simultaneously.
+> **Tip:** the four TP2s (Keycloak, Monitoring, IA, Messaging) are
+> **alternatives** — they all use the base `listings-api` (same container
+> name), so run **one** TP2 at a time.
 
 ## Run
 
@@ -97,20 +97,20 @@ TP1's ports or network changes for this TP.
 > export IA_DIR="/path/to/ia-repo"              # this IA repo
 > ```
 
-### 0) Required base edit — `../springboot/pom.xml` and `application.yml`
+### 0) Required base edit — `../springboot/pom.xml`, `application.yml` (and the compose, bonus)
 
 The TP's Java lives in your copy of `../springboot` (this repo ships **no Java**;
 `client/` and `docs/` here are the config + verification, the way `../keycloak/`
 ships `realm/` and `../monitoring/` ships the config YAMLs).
 
-Only **two additive** edits are required — one in `pom.xml`, one in
-`application.yml`:
+Two **additive** edits are required — `pom.xml` and `application.yml` — plus
+one line in the base compose for the bonus:
 
 **`pom.xml` — add both dependencies** (the Spring AI MCP server, and the Gemini
 SDK for the bonus):
 
 ```xml
-<!-- (a) MCP server over SSE — Spring AI 2.0.1 (Boot-4 line, matches TP1's Boot 4.1.1) -->
+<!-- (a) MCP server (Streamable HTTP) — Spring AI 2.0.1 (Boot-4 line, matches TP1's Boot 4.1.1) -->
 <dependency>
     <groupId>org.springframework.ai</groupId>
     <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
@@ -134,17 +134,27 @@ spring:
     mcp:
       server:
         name: listings-api          # shown in serverInfo.name of the handshake
-        protocol: SSE               # enables the SSE autoconfig (/sse + /mcp/message)
+        protocol: STREAMABLE        # POST /mcp; the default (SSE) is not supported by Antigravity
 # Bonus (Steps 5-6): optional
 listings:
   ai:
-    model: gemini-2.0-flash         # any gemini-*-flash on your AI Studio free key
+    model: gemini-flash-latest      # Google's alias for the current Flash model
     timeout-ms: 10000
 ```
 
-That is the **entire** required change to `../springboot` — no new container,
-no new network, no new port, and **no change to `docker-compose.yml`** (unlike
-the Keycloak / Monitoring TPs, which add containers).
+**Base compose — bonus only (Step 5):** in `listings-api` → `environment`,
+forward the Gemini key from your shell to the container:
+
+```yaml
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}   # a reference, never the value
+```
+
+`docker compose` does not pass host variables to a container unless they are
+listed like this. The value comes from `export GEMINI_API_KEY=…` in the shell
+that runs `docker compose up`, and stays out of the repo.
+
+No new container, network, or port (unlike the Keycloak / Monitoring /
+Messaging TPs).
 
 ### 1) Start the TP1 base (unchanged)
 
@@ -169,16 +179,18 @@ cd "$TP1_DIR"
 docker compose up -d --build listings-api && docker compose ps
 ```
 
-Then prove the MCP handshake works **without the AI client** (raw `curl`). The
-MCP routes keep **HTTP Basic** (a TP1 seller):
+Then prove the MCP server answers **without the AI client** (raw `curl`). The
+MCP route keeps **HTTP Basic** (a TP1 seller):
 
 ```bash
-# open the SSE stream (Basic = alice@test:secret123, a TP1 seller account)
-curl -N -s -H "Authorization: Basic YWxpY2VAdGVzdDpzZWNyZXQxMjM=" http://localhost:8080/sse
+curl -s -D - -X POST http://localhost:8080/mcp \
+  -u 'alice@test.org:secret123' \
+  -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"1"}}}'
+# -> 200, header Mcp-Session-Id, body with serverInfo.name = listings-api
 ```
 
-The first event is the **endpoint** (the POST target for the JSON-RPC calls).
-The full handshake, `tools/list`, and hand-written `tools/call` are in
+`tools/list` and hand-written `tools/call` are in
 [`docs/verification.md`](docs/verification.md).
 
 ### 3) Connect the AI client (Step 3 — the "waouh")
@@ -193,17 +205,17 @@ language, e.g. *"what do you have in sports under 500?"* or
 `@Tool`, your code runs, and the answer comes back in natural language.
 
 > Security lesson — **the write tool respects TP1 ownership**: even though the
-> AI *chooses* to call `change_listing_price`, TP1's
-> `listing.getSeller().getId() == currentUserId` check still runs inside the
-> tool. An AI acting as `alice` cannot change a listing owned by `bob`.
+> AI *chooses* to call `change_listing_price`, TP1's owner check
+> (`listing.owner.id == caller id`) still runs inside the tool. An AI acting as
+> `alice` cannot change a listing owned by `bob`.
 
 ### 4) Flip roles — call Gemini from the API (Step 5, BONUS)
 
 ```bash
 export GEMINI_API_KEY="your-AI-Studio-key"
-# from "$TP1_DIR" so the env reaches the container on a rebuild:
-docker compose up -d --build listings-api
-curl -s -X POST http://localhost:8080/listings/1/ai-description
+# needs the GEMINI_API_KEY line of §0 in the base compose:
+cd "$TP1_DIR" && docker compose up -d --build listings-api
+curl -s -X POST -u 'alice@test.org:secret123' http://localhost:8080/listings/1/ai-description
 ```
 
 ### 5) Stop
@@ -219,12 +231,12 @@ cd "$TP1_DIR" && docker compose down              # keep the DB
 IA/
 ├── .gitignore
 ├── README.md                 # this file
-├── exercise.md               # the statement (5-6h, core 1-4 + bonus 5-6 + delivery 7)
+├── exercise.md               # the statement (core 1-4 + bonus 5-6 + delivery 7)
 ├── client/
 │   ├── README.md             # the "waouh" client setup (Step 3)
-│   └── mcp-client.json       # the config to paste into your AI client
+│   └── mcp-client.json       # Antigravity mcp_config.json entry (Streamable HTTP + Basic)
 └── docs/
-    └── verification.md       # raw MCP handshake + Gemini curl, copy-pasteable
+    └── verification.md       # raw MCP calls (curl) + Gemini curl, copy-pasteable
 
 ../springboot/ (the code you extend — NOT in this repo)
 ├── pom.xml                   # +2 deps (spring-ai mcp server, google-genai) [Step 1 / 5]
@@ -232,6 +244,7 @@ IA/
 │   ├── tools/...             # your @Tool methods (Step 2, 4)
 │   └── GeminiClient.java     # the Gemini call (Step 5, BONUS)
 ├── src/main/resources/application.yml   # + spring.ai.mcp.server block [Step 1]
+├── docker-compose.yml        # + GEMINI_API_KEY: ${GEMINI_API_KEY:-} [Step 5, BONUS]
 └── src/main/java/.../config/SecurityConfig.java  # MCP routes keep Basic auth (TP1 default-deny)
 ```
 
@@ -241,12 +254,13 @@ IA/
 
 ## Useful links (version-pinned)
 
-- Spring AI MCP server (Boot 4 line, matches TP1):
-  <https://github.com/spring-projects/spring-ai/tree/main/models/> + the
-  `spring-ai-starter-mcp-server-webmvc` artifact (`2.0.1`).
-- MCP (the protocol): <https://modelcontextprotocol.io/introduction>
-- Gemini (Google AI Studio, free tier): <https://aistudio.google.com> ·
-  REST reference <https://ai.google.dev/api>
+- Spring AI 2.0 — MCP server, Streamable HTTP:
+  <https://docs.spring.io/spring-ai/reference/2.0/api/mcp/mcp-streamable-http-server-boot-starter-docs.html>
+- Spring AI 2.0 — tools (`@Tool`, `@ToolParam`): <https://docs.spring.io/spring-ai/reference/2.0/api/tools.html>
+- MCP (the protocol): <https://modelcontextprotocol.io/docs/learn/server-concepts>
+- Antigravity — MCP configuration: <https://antigravity.google/docs/mcp>
+- Gemini models (current names): <https://ai.google.dev/gemini-api/docs/models> ·
+  free key: <https://aistudio.google.com/apikey>
 - Google `google-genai` Java SDK: <https://github.com/googleapis/java-genai>
 
 > TP rule: no `TODO`, no stub, no secret in production code.

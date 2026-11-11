@@ -1,39 +1,41 @@
 # How to use this client config
 
-This is the [client-side config](./mcp-client.json) to paste into your
-AI client — **Antigravity** (recommended; Google's tool, signs in with a
-Google account) or any other MCP-over-SSE client (Claude Desktop, …). It
-registers **this TP's** MCP server at `http://localhost:8080/sse`,
-with **Basic auth** (TP1 default-deny is **preserved** — Step 1.1-1.2).
+[`mcp-client.json`](./mcp-client.json) is the entry to add to
+**Antigravity**'s `mcp_config.json` (*… → MCP Servers → Manage MCP Servers →
+View raw config*). It registers **this TP's** MCP server at
+`http://localhost:8080/mcp`, over the **Streamable HTTP** transport, with
+**Basic auth** (TP1's default-deny is **preserved** — exercise Step 1).
 
-> **Note:** Antigravity ships its own MCP registration UI — if it accepts
-> the JSON directly (name/url/headers), paste the block from
-> [`mcp-client.json`](./mcp-client.json) as-is. If it uses a different field
-> layout, keep the **same three facts** listed in section 2 below.
+> Antigravity supports **only** the Streamable HTTP transport for remote
+> servers (`serverUrl`). The legacy HTTP+SSE transport (`/sse`) is not
+> supported: your server must use `spring.ai.mcp.server.protocol: STREAMABLE`
+> (README §0). Reference: <https://antigravity.google/docs/mcp>
 
-## Required changes before pasting
+## Required change before pasting
 
-1. **Replace the credentials** in the `Authorization` header with *your*
-   TP1 `SELLER` account:
-   - current value: `alice@test:secret123` (the `alice@test` TP1 scaffold
-     account)
-   - base64 of `yourEmail:yourPass` → paste under `"Authorization"`.
-   The header is `Basic <base64>`, e.g.
-   `Basic $(echo -n "alice@test:secret123" | base64)` =
-   `Basic YWxpY2VAdGVzdDpzZWNyZXQxMjM=`.
+**Replace the credentials** in the `Authorization` header with *your* TP1
+`SELLER` account. The value is `Basic` + base64 of `email:password`:
 
-2. **If your client uses a different JSON shape** (Claude Desktop writes
-   `claude_desktop_config.json`, e.g.), keep these three facts:
-   - `type: "sse"`,
-   - `url: "http://localhost:8080/sse"`,
-   - the `Authorization` header above.
+```bash
+printf '%s' 'alice@test.org:secret123' | base64     # YWxpY2VAdGVzdC5vcmc6c2VjcmV0MTIz
+```
 
-> **Why there is an `Authorization` header at all:** the MCP routes are **not**
-> opened to the world — they keep TP1's default-deny (Step 1.2). The header means
-> "act as this SELLER", so the write tool still enforces TP1 ownership. Read the
-> *why* in [`exercise.md` Step 1](../exercise.md); this file is only the *how*.
+(`printf`, not `echo`: `echo` adds a newline that ends up in the encoded value.)
 
-## Where this config lives for the student
+## Another client
 
-In your local AI client's MCP settings (not committed to any repo). The
-team README (in `../springboot/`) keeps a screenshot of the transcript.
+Keep the **same three facts**, in that client's format:
+
+- the **Streamable HTTP** transport (some clients call it `http`),
+- the URL `http://localhost:8080/mcp`,
+- the `Authorization: Basic …` header above.
+
+> **Why there is an `Authorization` header at all:** the MCP route is **not**
+> open to the world — it keeps TP1's default-deny. The header means "act as
+> this SELLER", so the write tool still enforces TP1 ownership. The *why* is
+> in [`exercise.md`](../exercise.md); this file is only the *how*.
+
+## Where this config lives
+
+In your local AI client's settings (not committed to any repo). The team
+README (in `../springboot/`) keeps a screenshot of the transcript.
