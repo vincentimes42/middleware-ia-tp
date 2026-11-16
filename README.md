@@ -27,8 +27,8 @@ What each piece is, and who owns it:
 
 | Piece | What it is | Lives in |
 |---|---|---|
-| **MCP server** | Your Spring Boot app exposing `@Tool` methods over **Streamable HTTP** (`POST /mcp`) | **`../springboot/`** (a new `ai` package) |
-| **MCP client ("waouh")** | **Antigravity** (or any Streamable-HTTP MCP client), a local app that talks MCP | on the student's machine — config provided in `client/` |
+| **MCP server** | Your Spring Boot app exposing `@Tool` methods over MCP 2026-07-28 (`POST /mcp`) | **`../springboot/`** (a new `ai` package) |
+| **MCP client ("waouh")** | **Antigravity** (CLI or app; or any MCP 2026-07-28 client), a local app that talks MCP | on the student's machine — config provided in `client/` |
 | **Gemini** | Google's model (free Google AI Studio key), called from the API | remote API, no local service |
 
 There is **no new Docker stack** and **no port change**. The API stays on
@@ -43,7 +43,8 @@ artifact on the host is the **AI client** you point at `http://localhost:8080`.
 
 ```
    Antigravity     ----  POST http://localhost:8080/mcp   (every JSON-RPC call:
-   (your "waouh")         initialize, tools/list, tools/call; header Mcp-Session-Id)
+   (your "waouh")         server/discover, tools/list, tools/call; headers
+                          Mcp-Protocol-Version, Mcp-Method; no session)
                             ^
                             |  same Spring app as TP1 (port 8080), Basic auth
    +-----------------------------------------------------------+
@@ -56,12 +57,14 @@ artifact on the host is the **AI client** you point at `http://localhost:8080`.
                           Gemini API  gemini-flash-latest
 ```
 
-- **One endpoint**, `POST /mcp` (MCP **Streamable HTTP** transport). The
-  `initialize` answer carries an `Mcp-Session-Id` header that the client sends
-  back on every next call.
-- Spring AI also offers the legacy **HTTP+SSE** transport (`GET /sse` +
-  `POST /mcp/message`); this TP does **not** use it: Antigravity does not
-  support it.
+- **One endpoint**, `POST /mcp`, MCP revision **2026-07-28** (Spring AI
+  `protocol: MODERN`). It is stateless: no `initialize`, no session; each
+  request names its method (`Mcp-Method` header) and carries the protocol
+  version (`Mcp-Protocol-Version` header and `_meta`). The client starts with
+  `server/discover` (server name, versions, capabilities).
+- The older session-based transports (`STREAMABLE`: `initialize` +
+  `Mcp-Session-Id`; legacy HTTP+SSE) are **not** used: Antigravity CLI speaks
+  2026-07-28 and never finishes connecting to a session-based server.
 
 Services still talk over the shared `middleware` network exactly as in TP1
 (`listings-postgres`, container name `listings-api`, host `8080`).
@@ -74,10 +77,10 @@ Services still talk over the shared `middleware` network exactly as in TP1
 - Linux or WSL2, Bash terminal ([details](../springboot/README.md#operating-system-and-shell)).
 - `docker compose version` (the base, `../springboot`, must run).
 - JDK 27 + Maven 3.9+ (already installed for TP1).
-- **Antigravity** (recommended — Step 3) on the student's machine. It signs in
-  with a Google account and lets you register a local MCP server. (Any MCP
-  client that supports the **Streamable HTTP** transport works, but the lab is
-  built around Antigravity.)
+- **Antigravity** (recommended — Step 3) on the student's machine: the CLI
+  (`agy`) or the app. It signs in with a Google account and lets you register
+  a local MCP server. (Any MCP client that speaks the 2026-07-28 revision over
+  HTTP works, but the lab is built around Antigravity.)
 - **Ports free on the host:** `8080` (the API + MCP) · `5435` (TP1 Postgres).
 - A **free Google AI Studio API key** for the bonus (Step 5):
   <https://aistudio.google.com/apikey>. Keep it in an **environment variable**
@@ -111,11 +114,12 @@ one line in the base compose for the bonus:
 SDK for the bonus):
 
 ```xml
-<!-- (a) MCP server (Streamable HTTP) — Spring AI 2.0.1 (Boot-4 line, matches TP1's Boot 4.1.1) -->
+<!-- (a) MCP server — Spring AI 2.1.0-RC2 (Boot-4 line, works with TP1's Boot 4.1.1):
+     the first line with the MCP 2026-07-28 revision (protocol MODERN) that Antigravity speaks -->
 <dependency>
     <groupId>org.springframework.ai</groupId>
     <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
-    <version>2.0.1</version>
+    <version>2.1.0-RC2</version>
 </dependency>
 
 <!-- (b) Google Gemini SDK — used by Steps 5-6 (BONUS) to call the model -->
@@ -126,21 +130,28 @@ SDK for the bonus):
 </dependency>
 ```
 
-**`application.yml` — append the `spring.ai.mcp.server` block** (+ optional AI
-settings):
+**`application.yml` — add the `spring.ai.mcp.server` block** (+ optional AI
+settings). TP1's file **already has** top-level `spring:` and `listings:`
+keys: put `ai:` **under each existing key** (indented), do **not** paste a
+second `spring:` / `listings:` at the end (Spring Boot refuses the file:
+`found duplicate key spring`).
 
 ```yaml
 spring:
-  ai:
+  ai:                               # NEW, under the existing spring: key
     mcp:
       server:
-        name: listings-api          # shown in serverInfo.name of the handshake
-        protocol: STREAMABLE        # POST /mcp; the default (SSE) is not supported by Antigravity
-# Bonus (Steps 5-6): optional
+        name: listings-api          # shown in serverInfo of server/discover
+        protocol: MODERN            # MCP 2026-07-28 on POST /mcp (what Antigravity speaks)
+  application:                      # (existing TP1 keys, unchanged)
+    name: listings
+  # ...
+
 listings:
-  ai:
+  ai:                               # NEW, under the existing listings: key (bonus Steps 5-6)
     model: gemini-flash-latest      # Google's alias for the current Flash model
     timeout-ms: 10000
+  # ... (existing TP1 keys, unchanged)
 ```
 
 **Base compose — bonus only (Step 5):** in `listings-api` → `environment`,
@@ -148,6 +159,9 @@ forward the Gemini key from your shell to the container:
 
 ```yaml
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}   # a reference, never the value
+      # the model is a deployment choice (listings.ai.model): switch to
+      # gemini-flash-lite-latest when flash-latest answers "high demand"
+      LISTINGS_AI_MODEL: ${LISTINGS_AI_MODEL:-gemini-flash-latest}
 ```
 
 `docker compose` does not pass host variables to a container unless they are
@@ -184,11 +198,11 @@ Then prove the MCP server answers **without the AI client** (raw `curl`). The
 MCP route keeps **HTTP Basic** (a TP1 seller):
 
 ```bash
-curl -s -D - -X POST http://localhost:8080/mcp \
-  -u 'alice@test.org:secret123' \
+curl -s -X POST http://localhost:8080/mcp -u 'alice@test.org:secret123' \
   -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"1"}}}'
-# -> 200, header Mcp-Session-Id, body with serverInfo.name = listings-api
+  -H 'Mcp-Protocol-Version: 2026-07-28' -H 'Mcp-Method: server/discover' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"curl","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}'
+# -> 200, supportedVersions ["2026-07-28"], _meta serverInfo.name = listings-api
 ```
 
 `tools/list` and hand-written `tools/call` are in
@@ -197,9 +211,10 @@ curl -s -D - -X POST http://localhost:8080/mcp \
 ### 3) Connect the AI client (Step 3 — the "waouh")
 
 Point **Antigravity** (or any MCP client) at the local server. The exact
-config to paste — **including the HTTP Basic header** (the MCP routes keep TP1's
+config — **including the HTTP Basic header** (the MCP routes keep TP1's
 default-deny and are **not** opened to the world) — is in
-[`client/mcp-client.json`](client/mcp-client.json). The client authenticates as
+[`client/mcp-client.json`](client/mcp-client.json) (app) and
+[`client/README.md`](client/README.md) (CLI: one `agy mcp add` command). The client authenticates as
 a specific **SELLER** (a TP1 account you already have). Then ask, in natural
 language, e.g. *"what do you have in sports under 500?"* or
 *"change the price of my first listing to 320"*. The client picks the right
@@ -235,7 +250,7 @@ IA/
 ├── exercise.md               # the statement (core 1-4 + bonus 5-6 + delivery 7)
 ├── client/
 │   ├── README.md             # the "waouh" client setup (Step 3)
-│   └── mcp-client.json       # Antigravity mcp_config.json entry (Streamable HTTP + Basic)
+│   └── mcp-client.json       # Antigravity mcp_config.json entry (serverUrl + Basic)
 └── docs/
     ├── primer.md             # MCP, Spring AI, the Gemini SDK, what not to do
     └── verification.md       # raw MCP calls (curl) + Gemini curl, copy-pasteable
@@ -256,8 +271,9 @@ IA/
 
 ## Useful links (version-pinned)
 
-- Spring AI 2.0 — MCP server, Streamable HTTP:
-  <https://docs.spring.io/spring-ai/reference/2.0/api/mcp/mcp-streamable-http-server-boot-starter-docs.html>
+- Spring AI 2.1 — MCP server (Boot starters):
+  <https://docs.spring.io/spring-ai/reference/2.1/api/mcp/mcp-server-boot-starter-docs.html>
+- MCP revision 2026-07-28 (the protocol of this TP): <https://modelcontextprotocol.io/specification/2026-07-28>
 - Spring AI 2.0 — tools (`@Tool`, `@ToolParam`): <https://docs.spring.io/spring-ai/reference/2.0/api/tools.html>
 - MCP (the protocol): <https://modelcontextprotocol.io/docs/learn/server-concepts>
 - Antigravity — MCP configuration: <https://antigravity.google/docs/mcp>

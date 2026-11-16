@@ -11,9 +11,9 @@ standard "tools".** Your Spring Boot app is the **server**; an AI app
 
 | Concept | What it is here |
 |---|---|
-| **Server** | your `listings-api` (TP1) exposing MCP over **Streamable HTTP** |
+| **Server** | your `listings-api` (TP1) exposing MCP (revision **2026-07-28**) over HTTP |
 | **Tool** | one Java method (`get_listing`, `list_listings`, `change_listing_price`) an LLM can call |
-| **Transport** | **Streamable HTTP**: one endpoint, `POST /mcp`, carrying JSON-RPC (`initialize`, `tools/list`, `tools/call`); the session id travels in the `Mcp-Session-Id` header |
+| **Transport** | one endpoint, `POST /mcp`, carrying JSON-RPC (`server/discover`, `tools/list`, `tools/call`); **stateless**: no session, each request names its method (`Mcp-Method` header) and its protocol version (`Mcp-Protocol-Version`, `_meta`) |
 | **Client** | an AI app that lists your tools and calls them in natural language |
 
 You are **not** writing a chatbot and you are **not** hosting an LLM. You are
@@ -25,13 +25,15 @@ whole idea of the day.
 
 | Library | Artifact · version | Used by |
 |---|---|---|
-| Spring AI (Boot 4 line) | `org.springframework.ai:spring-ai-starter-mcp-server-webmvc:**2.0.1**` | Steps 1-4 (the MCP server + tools) |
+| Spring AI (Boot 4 line) | `org.springframework.ai:spring-ai-starter-mcp-server-webmvc:**2.1.0-RC2**` (`protocol: MODERN`) | Steps 1-4 (the MCP server + tools) |
 | Google Gen AI SDK | `com.google.genai:google-genai:**1.78.0**` | Steps 5-6 (calling Gemini) |
 
 > **Why two different things:** Spring AI = **exposing tools** to an AI
 > client. The **Gemini SDK** = **asking the model** a question from your code.
-> Keep the two separate in your head. Spring AI **2.0.1** targets the Boot 4
-> line and works with TP1's Boot **4.1.1**.
+> Keep the two separate in your head. Spring AI **2.1** targets the Boot 4
+> line and works with TP1's Boot **4.1.1**; it is the first line with the
+> stateless 2026-07-28 revision of MCP that Antigravity speaks (2.0.x only has
+> the older session-based transports).
 
 ## What NOT to do
 

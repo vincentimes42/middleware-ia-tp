@@ -23,7 +23,7 @@ definition of done: **observable data**, not a Java test.
 
 | Level | What you assert | How |
 |---|---|---|
-| **Handshake** | the MCP server is up **and** keeps auth | `curl` `initialize` on `POST /mcp` — [`docs/verification.md` §1](docs/verification.md) |
+| **Handshake** | the MCP server is up **and** keeps auth | `curl` `server/discover` on `POST /mcp` — [`docs/verification.md` §1](docs/verification.md) |
 | **Tools** | `tools/list` returns your tools with a readable `description` + `inputSchema` | [`docs/verification.md` §1](docs/verification.md) |
 | **Call** | `tools/call` runs **your Java** and returns the DB data | [`docs/verification.md` §2-3](docs/verification.md) |
 | **Client** | the AI client lists **your** tools and answers in natural language | the **client transcript** (Step 3) |
@@ -86,7 +86,7 @@ layer:
 
 ```
    Antigravity (the "waouh" client)                            [Step 3]
-        |   MCP over Streamable HTTP, authenticates as a SELLER (Basic)
+        |   MCP 2026-07-28 over HTTP, authenticates as a SELLER (Basic)
         v
    listings-api (TP1, port 8080)
      POST /mcp                            <- the MCP server       [Step 1]
@@ -116,9 +116,13 @@ Work the core **in order**. If the core is not green, do not start the bonuses.
 
 - **Service name** (used in `serverInfo.name`, logs): `listings-api`.
 - **Port:** API + MCP on **8080** (unchanged from TP1). Postgres **5435**.
-- **MCP transport:** **Streamable HTTP**, one endpoint `POST http://localhost:8080/mcp`
-  (`spring.ai.mcp.server.protocol: STREAMABLE`). Not the legacy HTTP+SSE
-  transport: Antigravity does not support it.
+- **MCP protocol:** revision **2026-07-28** over HTTP, one endpoint
+  `POST http://localhost:8080/mcp` (`spring.ai.mcp.server.protocol: MODERN`,
+  Spring AI **2.1**). Stateless: no `initialize`, no session; each request
+  carries `Mcp-Protocol-Version`, `Mcp-Method` (and `Mcp-Name` for a tool
+  call) and a `_meta` with the protocol version. Not the session-based
+  `STREAMABLE` transport (Spring AI 2.0): Antigravity CLI speaks 2026-07-28
+  and never finishes connecting to it.
 - **Auth on the MCP route:** **HTTP Basic** (TP1's default-deny is **preserved**).
   The AI client authenticates as a **SELLER**; anonymous → **401**.
 - **Test accounts** (TP1, password `secret123`): `alice@test.org` owns
@@ -131,7 +135,9 @@ Work the core **in order**. If the core is not green, do not start the bonuses.
   `VEHICLES`, `SPORTS`, `HOUSEHOLD`, `GARDEN`, `OTHER`.
 - **Gemini model** (bonus): `gemini-flash-latest`, Google's alias for the
   current Flash model (a fixed version such as `gemini-2.0-flash` is retired
-  after a while; the alias is not). Configurable in `application.yml`.
+  after a while; the alias is not). Configurable (`listings.ai.model`,
+  `LISTINGS_AI_MODEL` in the compose): when it answers *"high demand"* or
+  times out, use `gemini-flash-lite-latest`.
 - **The key** is the **environment variable `GEMINI_API_KEY`** only — never in
   code, `application.yml`, the repo, or the git history. The base compose
   passes it through from the host (`${GEMINI_API_KEY:-}`), it does not store it.
@@ -146,8 +152,8 @@ Work the core **in order**. If the core is not green, do not start the bonuses.
 ## Step 1 — Bring up the MCP server   CORE
 
 **Outcome** — Your TP1 API **is an MCP server**: `POST /mcp` answers
-`initialize` with `serverInfo.name = listings-api`, **keeps HTTP Basic auth**
-(anonymous → 401), and `tools/list` answers (empty for now). Raw `curl` is
+`server/discover` with `serverInfo.name = listings-api`, **keeps HTTP Basic
+auth** (anonymous → 401), and `tools/list` answers (empty for now). Raw `curl` is
 enough; the AI client comes in Step 3.
 
 **Why this step** — MCP is a standard protocol: once your app speaks it, any
@@ -159,7 +165,7 @@ unchanged.
 
 ```
 curl / AI client ── POST /mcp (Basic) ──► security chain (TP1) ──► Spring AI MCP endpoint (starter, item 1)
-                                             anonymous ──► 401        initialize ──► serverInfo listings-api (item 2)
+                                             anonymous ──► 401        server/discover ──► serverInfo listings-api (item 2)
                                                                       tools/list ──► [] (no tool yet)
 ```
 
@@ -171,10 +177,13 @@ curl / AI client ── POST /mcp (Basic) ──► security chain (TP1) ──�
    → It brings the MCP endpoint and the auto-configuration that publishes
    your tools; without it, nothing answers on `/mcp`.
 2. **Add** the `spring.ai.mcp.server` block to `application.yml` —
-   `name: listings-api`, `protocol: STREAMABLE` (README §0).
-   → The default transport is the legacy HTTP+SSE (`/sse` +
-   `/mcp/message`), which Antigravity does not support. The `name` is what the
-   client shows in `serverInfo`.
+   `name: listings-api`, `protocol: MODERN` (README §0), **under the existing
+   `spring:` key**.
+   → The default (`STREAMABLE`) is the session-based revision of MCP, which
+   Antigravity CLI does not complete; `MODERN` is the stateless 2026-07-28
+   revision it speaks. The `name` is what the client shows in `serverInfo`.
+   A second top-level `spring:` at the end of the file stops the app
+   (`found duplicate key spring`).
 3. **Check** `SecurityConfig` — `/mcp` falls under `anyRequest().authenticated()`,
    so it **keeps Basic auth** (do **not** permit it).
    → The tools act on behalf of a seller: an open endpoint would let anyone
@@ -183,10 +192,11 @@ curl / AI client ── POST /mcp (Basic) ──► security chain (TP1) ──�
 ### Expected behavior
 - **Anonymous** `POST /mcp` → **401** (the route keeps Basic auth; it is **not**
   opened to the world).
-- `initialize` with a SELLER Basic credential → **200**, a JSON-RPC `result`
-  with `serverInfo.name = listings-api`, and an **`Mcp-Session-Id`** response
-  header (to send back on every next call).
-- `tools/list` (with that session id) → an **empty** list (Step 2 adds tools).
+- `server/discover` with a SELLER Basic credential → **200**, a JSON-RPC
+  `result` with `supportedVersions` = `["2026-07-28"]` and
+  `serverInfo.name = listings-api` (in `_meta`). No session id: every next
+  request stands alone.
+- `tools/list` → an **empty** list (Step 2 adds tools).
 
 ### Verify
 
@@ -196,9 +206,10 @@ curl / AI client ── POST /mcp (Basic) ──► security chain (TP1) ──�
 <summary><strong>If you are stuck</strong></summary>
 
 - Paste the dependency + the `application.yml` block from **README → "0) Required base edit"** (the *what/why* is in **Appendix A**).
-- `/mcp` is the default endpoint of the Streamable transport — do **not** declare a controller for it.
-- `GET /sse` answering **500** or **404** is normal: that is the legacy transport, not enabled.
-- Every call after `initialize` needs the `Mcp-Session-Id` header and `Accept: application/json, text/event-stream`. Reference: <https://docs.spring.io/spring-ai/reference/2.0/api/mcp/mcp-streamable-http-server-boot-starter-docs.html>
+- `/mcp` is the default endpoint (`spring.ai.mcp.server.modern.mcp-endpoint`) — do **not** declare a controller for it.
+- `400 Missing required header: Mcp-Method`: every request names its method in the `Mcp-Method` header (plus `Mcp-Name` for `tools/call`), sends `Mcp-Protocol-Version: 2026-07-28` and `Accept: application/json, text/event-stream`. The helpers of [`docs/verification.md` §0](docs/verification.md) do it for you.
+- An old `initialize` answering 400 is normal: the 2026-07-28 revision has no handshake session; clients start with `server/discover`.
+- The startup log line `Registered modern tools: N` counts the published tools. Reference: <https://docs.spring.io/spring-ai/reference/2.1/api/mcp/mcp-server-boot-starter-docs.html>
 
 </details>
 
@@ -267,9 +278,10 @@ tools/call get_listing {id} ──► ListingTools.getListing ──► TP1 List
 <summary><strong>If you are stuck</strong></summary>
 
 - `@Tool` and `@ToolParam` live in **`org.springframework.ai.tool.annotation`** (pulled by the starter).
-- The provider bean: `org.springframework.ai.tool.ToolCallbackProvider`, built with `org.springframework.ai.tool.method.MethodToolCallbackProvider.builder()`. The startup log line `Registered tools: N` counts them.
+- The provider bean: `org.springframework.ai.tool.ToolCallbackProvider`, built with `org.springframework.ai.tool.method.MethodToolCallbackProvider.builder()`. The startup log line `Registered modern tools: N` counts them.
+- Spring AI serializes a tool result with **its own** Jackson mapper: TP1's `spring.jackson.default-property-inclusion: non_null` does not apply, so a `null` field (e.g. `"description": null`) appears where `GET /listings/{id}` omits it. For a field-for-field match, put `@JsonInclude(JsonInclude.Include.NON_NULL)` on the DTO you return.
 - Inside a tool, `SecurityContextHolder` holds the Basic caller (the tool runs on the request thread): the same way TP1's controllers find the caller works here.
-- Full raw `curl`s for `tools/list` + `tools/call`: [`docs/verification.md` §2](docs/verification.md). Reference: <https://docs.spring.io/spring-ai/reference/2.0/api/tools.html>
+- Full raw `curl`s for `tools/list` + `tools/call`: [`docs/verification.md` §2](docs/verification.md). Reference: <https://docs.spring.io/spring-ai/reference/2.1/api/tools.html>
 
 </details>
 
@@ -277,7 +289,7 @@ tools/call get_listing {id} ──► ListingTools.getListing ──► TP1 List
 
 ## Step 3 — Connect the AI client and "waouh" it   CORE
 
-**Outcome** — An MCP client (Antigravity, or any Streamable-HTTP client) is
+**Outcome** — An MCP client (Antigravity, or any client speaking MCP 2026-07-28) is
 **registered against your server**, carries the **SELLER Basic header**, lists
 **your two tools** (not a built-in), and answers plain-English read questions
 with data that **matches a raw `curl GET /listings/{id}`**. This is the
@@ -339,9 +351,10 @@ you ── "what do you have in sports under 500?" ──► Antigravity (LLM)
 <details>
 <summary><strong>If you are stuck</strong></summary>
 
-- Antigravity only supports **Streamable HTTP** for remote servers: the config uses `serverUrl` (`http://localhost:8080/mcp`) and `headers`. A server still on the SSE transport (Step 1, item 2) shows no tools. Reference: <https://antigravity.google/docs/mcp>
+- Antigravity uses `serverUrl` (`http://localhost:8080/mcp`) and `headers` (app: `mcp_config.json`; CLI: `agy mcp add --header "Authorization: Basic …" listings http://localhost:8080/mcp`). A server left on `STREAMABLE` stays at `initializing...` forever (Step 1, item 2). Reference: <https://antigravity.google/docs/mcp>
+- `failed to construct executor: plan model not specified` in `agy`: the CLI could not fetch its model list (often a DNS hiccup in WSL); start it with `agy --model <a name from agy models>`.
 - **Stay read-only** in this step — writes are Step 4.
-- If the client shows **no tools**, replay Step 1's `initialize` + `tools/list` with `curl` and the **same** Basic header as the client.
+- If the client shows **no tools**, replay Step 1's `server/discover` + `tools/list` with `curl` and the **same** Basic header as the client.
 - To prove **your** Java runs (not a built-in), ask the client for a field you control (e.g. the exact price) and compare to a **side-by-side `curl GET /listings/{id}`** in a terminal.
 
 </details>
@@ -431,6 +444,7 @@ Additional rules:
 <summary><strong>If you are stuck</strong></summary>
 
 - A tool returns normally on success (any object, serialized as text) and **throws** on failure: the thrown exception's message becomes the error text.
+- The default result converter JSON-encodes every result, a `String` included: `"OK new price…"` reaches the model **with** its quotes. `@Tool(resultConverter = …)` with a small `ToolCallResultConverter` that returns a `String` as is fixes it.
 - TP1's exceptions: `org.springframework.security.access.AccessDeniedException` (403) and your `ResourceNotFoundException` (404). Reuse them, do not invent new ones in the service.
 - Test the 403 with `bob@test.org` as the Basic credential on alice's listing.
 - Full raw `curl`s for all four cases: [`docs/verification.md` §3](docs/verification.md).
@@ -455,11 +469,11 @@ give it the facts so it does not invent them.
 
 ```
 POST /listings/{id}/ai-description (Basic, owner)
-   └─► AiListingController (item 3) ── TP1 owner check (403/404)
+   └─► AiListingController (item 4) ── ListingService.findOwned: TP1 owner check (403/404) (item 3)
           └─► GeminiClient.describe(prompt with DB facts) (item 2)
                  └─ Client (google-genai) ── HTTPS, timeout 10 s ──► Gemini gemini-flash-latest
-                      key: env GEMINI_API_KEY (host) ──► compose ${GEMINI_API_KEY:-} ──► container (item 4)
-          failure (no key, ApiException, timeout) ──► GeminiUnavailableException ──► 503 (item 5)
+                      key: env GEMINI_API_KEY (host) ──► compose ${GEMINI_API_KEY:-} ──► container (item 5)
+          failure (no key, ApiException, timeout) ──► GeminiUnavailableException ──► 503 (item 6)
 ```
 
 ### Build it
@@ -482,9 +496,18 @@ POST /listings/{id}/ai-description (Basic, owner)
 
 **B. The endpoint**
 
-3. **Create** `com.app.listings.web.controller.AiListingController` — a
+3. **Add** to TP1's `ListingService` a read method that applies the owner
+   check, e.g. `Listing findOwned(Long id, Long requestingUserId)`: unknown
+   (or hidden) → `ResourceNotFoundException` (404), not the owner →
+   `AccessDeniedException` (403). **Reuse** the check your `update` /
+   `delete` already make (in TP1 it is a private helper of the service):
+   make it reachable, do not copy its condition.
+   → TP1 only checks ownership on the write paths; this endpoint reads a
+   listing on behalf of its owner. A second copy of the rule in a
+   controller would drift from the first one.
+4. **Create** `com.app.listings.web.controller.AiListingController` — a
    `@RestController` for `POST /listings/{id}/ai-description`: resolve the
-   listing and apply **TP1's ownership check** (do **not** re-implement it),
+   listing with `findOwned` (item 3; do **not** re-implement the check),
    build a prompt that embeds the exact `title` / `category` / `price` as
    *facts*, call `GeminiClient.describe`, return
    `{ "listingId": <n>, "description": "<text>" }`.
@@ -493,13 +516,13 @@ POST /listings/{id}/ai-description (Basic, owner)
 
 **C. Key and failures**
 
-4. **Pass the key through** the base compose: in `listings-api.environment`,
+5. **Pass the key through** the base compose: in `listings-api.environment`,
    add `GEMINI_API_KEY: ${GEMINI_API_KEY:-}` (README §0). Then
    `export GEMINI_API_KEY=…` in your shell and rebuild.
    → `docker compose` does **not** forward host variables by itself: without
    this line the container never sees the key and every call answers 503.
    The line holds a reference, not the value: the key stays out of the repo.
-5. **Add** a `@ExceptionHandler(GeminiUnavailableException)` in TP1's
+6. **Add** a `@ExceptionHandler(GeminiUnavailableException)` in TP1's
    `GlobalExceptionHandler` → **503** with `{ "error": "LLM_UNAVAILABLE",
    "message": "…" }` (JSON content type, like the other handlers).
    → 503 tells the client the failure is on a dependency and temporary.
@@ -523,10 +546,11 @@ POST /listings/{id}/ai-description (Basic, owner)
 <details>
 <summary><strong>If you are stuck</strong></summary>
 
-- SDK chain: `Client.builder().apiKey(key).httpOptions(HttpOptions.builder().timeout(10_000).build()).build()`, then `client.models.generateContent(model, prompt, null)` (`models` is a **field**, not a method), then `response.text()`. Reference: <https://github.com/googleapis/java-genai>
+- SDK chain: `Client.builder().apiKey(key).httpOptions(HttpOptions.builder().timeout(10_000).retryOptions(HttpRetryOptions.builder().attempts(1).build()).build()).build()` (the SDK retries by default and each attempt restarts the timeout: without `attempts(1)` a failing call takes 20 s or more), then `client.models.generateContent(model, prompt, null)` (`models` is a **field**, not a method), then `response.text()`. Reference: <https://github.com/googleapis/java-genai>
 - SDK failures are `com.google.genai.errors.ApiException` (`ClientException` for 4xx such as an invalid key, `ServerException` for 5xx).
+- `findOwned` (item 3): the owner check of TP1 is the private method your `update` / `delete` call before writing (a "load, then check `isOwnedBy`" helper). A public method that returns it is enough; the controller never compares owner ids itself.
 - A prompt that keeps the model honest: *"Write a 2-sentence, friendly listing description. Use exactly: title=\"…\", category=SPORTS, price=320 EUR. Do not invent another price or category."*
-- Current model names: <https://ai.google.dev/gemini-api/docs/models>. A `404 … model not found` means a retired fixed version: use `gemini-flash-latest`.
+- Current model names: <https://ai.google.dev/gemini-api/docs/models>. A `404 … model not found` means a retired fixed version: use `gemini-flash-latest`. A `503 … high demand` (or a timeout) on the free tier: switch to `gemini-flash-lite-latest` (`LISTINGS_AI_MODEL`, README §0) and say it in your decision log.
 
 </details>
 
@@ -550,10 +574,10 @@ model can contradict the facts. Both are checked in code, before saving.
 
 ```
 POST …/ai-description/regenerate (owner)
-   └─► AiDescriptionService (item 4)
-         (a) TP1 owner check ── (b) sanitize title (deny-list, WARN) ── (c) GeminiClient.describe
+   └─► AiDescriptionService (item 5)
+         (a) findOwned (Step 5) ── (b) sanitize title (deny-list, WARN) ── (c) GeminiClient.describe
          (d) honesty guard: text agrees with DB price + category? ── no ──► 422, nothing saved
-         (e) save via TP1 update path ──► listing.ai_description (item 1-2) ──► V2 payload only (item 3)
+         (e) ListingService.updateAiDescription (item 4) ──► listing.ai_description (item 1-2) ──► V2 payload only (item 3)
 ```
 
 ### Build it
@@ -574,21 +598,32 @@ POST …/ai-description/regenerate (owner)
 
 **B. The guarded generation**
 
-4. **Create** `com.app.listings.ai.AiDescriptionService` that, in order:
-   - (a) applies the ownership check via TP1's `ListingService`;
+4. **Add** to TP1's `ListingService` a write method for the generated text,
+   e.g. `Listing updateAiDescription(Long id, Long requestingUserId, String
+   text)`, with the **same** owner check as `update` (404 / 403, reused, not
+   copied).
+   → The text must not travel through TP1's update DTO: a field
+   `aiDescription` there would let any owner `PUT` a fake "AI" text. A
+   dedicated method is the only way in, and it keeps TP1's rule.
+5. **Create** `com.app.listings.ai.AiDescriptionService` that, in order:
+   - (a) applies the ownership check with `findOwned` (Step 5, item 3);
    - (b) **sanitizes** the `title` with a **deny-list** of substrings
      (`"ignore previous"`, `"system:"`, `"you are now"`, case-insensitive).
      On hit → **log WARN** and **do not** send the raw title to Gemini;
    - (c) calls `GeminiClient.describe(...)`;
    - (d) **checks** that the returned text still matches the **DB** price and
      category — on mismatch, **do not** persist; answer 422;
-   - (e) **persists** through TP1's update path.
+   - (e) **persists** with `updateAiDescription` (item 4).
 
    → Each step blocks one failure: (b) a manipulated prompt, (d) a text that
    contradicts the listing; the order makes sure nothing unchecked is saved.
-5. **Add** a `/ai-description/regenerate` route to `AiListingController`
+6. **Add** a `/ai-description/regenerate` route to `AiListingController`
    (same controller as Step 5) — non-owner → 403, unknown → 404 (TP1's
-   rules).
+   rules) — and make **both** routes go through `AiDescriptionService`: the
+   Step 5 route keeps its answer (`{listingId, description}`), `regenerate`
+   answers `{listingId, aiDescription}` and overwrites the stored text.
+   → A route that skips the service would skip the sanitize and the honesty
+   guard: an injected title would still reach the model through it.
 
 ### Expected behavior
 - `GET /listings/{id}?version=V2` returns the stored text in **`aiDescription`**
@@ -616,6 +651,7 @@ POST …/ai-description/regenerate (owner)
 - Liquibase additive: **one** `addColumn listing ai_description VARCHAR(2000) NULL`, in a new file `v1.2-ai.yaml`, included in `db.changelog-master.yaml`. Never edit an applied changeSet.
 - **Sanitize:** a deny-list is enough for a lab; it is not a complete defence (it is easy to bypass): say so in your decision log.
 - **Honesty guard:** compare *after* normalizing (`BigDecimal` scale, `Category` enum name).
+- `updateAiDescription` (item 4): the same private owner check as `update`, then set the field on the managed entity (saved at commit). Test it with `bob`: 403, and the column stays unchanged.
 - Full raw `curl`s (Steps 5 & 6 share §5): [`docs/verification.md` §5](docs/verification.md).
 
 </details>
@@ -635,7 +671,7 @@ step proves the AI layer starts from a clean checkout, without your local key
 or client settings, and that you can explain each decision.
 
 ### Final checks
-- [ ] `cd "$TP1_DIR" && docker compose up -d --build` → `listings-api` healthy; the **MCP `initialize`** works raw ([`docs/verification.md` §1](docs/verification.md))
+- [ ] `cd "$TP1_DIR" && docker compose up -d --build` → `listings-api` healthy; the **MCP `server/discover`** works raw ([`docs/verification.md` §1](docs/verification.md))
 - [ ] **3 tools** in `tools/list` (`get_listing`, `list_listings`, `change_listing_price`) — each with a **description** and an **`inputSchema`**
 - [ ] The **AI client** is registered and the **waouh transcript** (read + write, side-by-side with the raw `curl`) is in the **team README**
 - [ ] **Bonuses 5-6** (if done): `GEMINI_API_KEY` is **env var only** (never in code, `application.yml`, or repo); a raw `curl POST /listings/{id}/ai-description` works; `GET /listings/{id}?version=V2` carries `aiDescription`
@@ -661,7 +697,7 @@ or client settings, and that you can explain each decision.
 
 | Item | Detail |
 |---|---|
-| **Pair's TP1 repo** (`../springboot/`) | `+2 deps` (Appendix A); `+ spring.ai.mcp.server` block; `com.app.listings.ai` package (3 tools + a `ToolCallbackProvider` bean + `AiErrorMapper` [+ `GeminiClient`, `AiDescriptionService`, `AiListingController` if Bonuses]); Liquibase `v1.2-ai.yaml` + include (if Bonus 6); `GEMINI_API_KEY: ${GEMINI_API_KEY:-}` in the base compose (if Bonus 5); `README.md` updated with the decision log |
+| **Pair's TP1 repo** (`../springboot/`) | `+2 deps` (Appendix A); `+ spring.ai.mcp.server` block; `com.app.listings.ai` package (3 tools + a `ToolCallbackProvider` bean + `AiErrorMapper` [+ `GeminiClient`, `AiDescriptionService`, `AiListingController`, and `findOwned` / `updateAiDescription` in TP1's `ListingService` if Bonuses]); Liquibase `v1.2-ai.yaml` + include (if Bonus 6); `GEMINI_API_KEY: ${GEMINI_API_KEY:-}` in the base compose (if Bonus 5); `README.md` updated with the decision log |
 | **This repo** (`IA/`) | `exercise.md` (this file), `README.md` (operational), `client/mcp-client.json` (client config), `docs/verification.md` (the copy-paste `curl`s). **No Java in this repo** |
 | **AI-client transcript** (read + write) | **In the pair's README**, as a screenshot or markdown snippet — the *waouh* evidence, side-by-side with a raw `curl GET /listings/{id}` |
 | **`mvn clean verify` in `../springboot`** | **Green** |
@@ -680,9 +716,9 @@ The **code you paste is not in this file** — it lives in the **operational**
 
 | Addition | Coordinates / key | Why |
 |---|---|---|
-| MCP server starter | `org.springframework.ai:spring-ai-starter-mcp-server-webmvc:2.0.1` | exposes the MCP **server** on Spring MVC. Spring AI **2.0** is the Boot-4 line (MCP Java SDK 2.0, Jackson 3). |
+| MCP server starter | `org.springframework.ai:spring-ai-starter-mcp-server-webmvc:2.1.0-RC2` | exposes the MCP **server** on Spring MVC. Spring AI **2.1** (Boot-4 line, MCP Java SDK 2.2, Jackson 3) is the first line with the 2026-07-28 revision (`protocol: MODERN`); 2.0.x only has the session-based transports. Move to 2.1.0 when it is released. |
 | Gen AI SDK | `com.google.genai:google-genai:1.78.0` | Steps 5-6 **call** the model. Independent from Spring AI. |
-| `application.yml` | `spring.ai.mcp.server.name: listings-api`, `spring.ai.mcp.server.protocol: STREAMABLE` (+ `listings.ai.model: gemini-flash-latest`, `listings.ai.timeout-ms: 10000`) | `name` shows in `serverInfo.name`; `STREAMABLE` selects the transport Antigravity supports (`POST /mcp`). |
+| `application.yml` | `spring.ai.mcp.server.name: listings-api`, `spring.ai.mcp.server.protocol: MODERN` (+ `listings.ai.model: gemini-flash-latest`, `listings.ai.timeout-ms: 10000`) — **under the existing** `spring:` / `listings:` keys | `name` shows in `serverInfo.name`; `MODERN` selects MCP 2026-07-28 on `POST /mcp`, what Antigravity speaks. |
 | base compose (bonus) | `GEMINI_API_KEY: ${GEMINI_API_KEY:-}` in `listings-api.environment` | forwards the key from your shell to the container at `up` time, without storing it. |
 
 ## Appendix B — the AI client config
@@ -691,7 +727,7 @@ Already shipped as a file: [`client/mcp-client.json`](client/mcp-client.json)
 (Antigravity's `mcp_config.json` format). For another client, keep the **same
 three facts**:
 
-- the **Streamable HTTP** transport (some clients call it `http`),
+- an HTTP server entry (some clients call the type `http`) speaking MCP 2026-07-28,
 - the URL `http://localhost:8080/mcp`,
 - `Authorization: Basic <base64(email:password)>` for a TP1 **SELLER** account
   (the client acts as that seller — **that is the identity inside the write
@@ -708,7 +744,7 @@ three facts**:
 
 ## Appendix D — Useful links (versions pinned)
 
-- **Spring AI 2.0** — MCP server (Streamable HTTP): <https://docs.spring.io/spring-ai/reference/2.0/api/mcp/mcp-streamable-http-server-boot-starter-docs.html> · tools: <https://docs.spring.io/spring-ai/reference/2.0/api/tools.html>
+- **Spring AI 2.1** — MCP server: <https://docs.spring.io/spring-ai/reference/2.1/api/mcp/mcp-server-boot-starter-docs.html> · tools: <https://docs.spring.io/spring-ai/reference/2.1/api/tools.html> · MCP 2026-07-28: <https://modelcontextprotocol.io/specification/2026-07-28>
 - **MCP (the protocol)**: <https://modelcontextprotocol.io/docs/learn/server-concepts>
 - **Antigravity — MCP**: <https://antigravity.google/docs/mcp>
 - **Gemini models** (current names, `gemini-flash-latest`): <https://ai.google.dev/gemini-api/docs/models> · free key: <https://aistudio.google.com/apikey>
