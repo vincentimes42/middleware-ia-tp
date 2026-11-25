@@ -3,13 +3,23 @@
 [`mcp-client.json`](./mcp-client.json) is the entry to add to
 **Antigravity**'s `mcp_config.json` (*… → MCP Servers → Manage MCP Servers →
 View raw config*). It registers **this TP's** MCP server at
-`http://localhost:8080/mcp`, over the **Streamable HTTP** transport, with
+`http://localhost:8080/mcp` (MCP revision 2026-07-28 over HTTP), with
 **Basic auth** (TP1's default-deny is **preserved** — exercise Step 1).
 
-> Antigravity supports **only** the Streamable HTTP transport for remote
-> servers (`serverUrl`). The legacy HTTP+SSE transport (`/sse`) is not
-> supported: your server must use `spring.ai.mcp.server.protocol: STREAMABLE`
-> (README §0). Reference: <https://antigravity.google/docs/mcp>
+> Antigravity (app and CLI 1.5) speaks the **2026-07-28** revision of MCP
+> (`server/discover`, no session): your server must use
+> `spring.ai.mcp.server.protocol: MODERN` (Spring AI 2.1, README §0). A server
+> on the older session-based `STREAMABLE` transport stays at
+> `initializing...` in the client. Reference: <https://antigravity.google/docs/mcp>
+
+**Antigravity CLI** (`agy`): one command instead of the JSON file —
+
+```bash
+agy mcp add --header "Authorization: Basic $(printf '%s' 'alice@test.org:secret123' | base64)" \
+  listings http://localhost:8080/mcp
+agy mcp list                 # listings  http  enabled
+agy                          # then /mcp: listings, your tools
+```
 
 ## Required change before pasting
 
@@ -26,7 +36,7 @@ printf '%s' 'alice@test.org:secret123' | base64     # YWxpY2VAdGVzdC5vcmc6c2Vjcm
 
 Keep the **same three facts**, in that client's format:
 
-- the **Streamable HTTP** transport (some clients call it `http`),
+- an HTTP server entry (some clients call the type `http`) speaking MCP 2026-07-28,
 - the URL `http://localhost:8080/mcp`,
 - the `Authorization: Basic …` header above.
 

@@ -1,7 +1,7 @@
 # TP IA — verification commands
 
 Copy-pasteable commands for every `Verify` section of
-[`../exercise.md`](../exercise.md): the MCP server (Streamable HTTP,
+[`../exercise.md`](../exercise.md): the MCP server (MCP 2026-07-28,
 `POST /mcp`), the tools, the ownership rules, and the Gemini call (bonus).
 
 > **Prerequisite:** TP1 is green and up on `http://localhost:8080`, with the
@@ -18,24 +18,21 @@ BOB='bob@test.org:secret123'
 JSON='Content-Type: application/json'
 ACCEPT='Accept: application/json, text/event-stream'
 
-# open an MCP session as $1 (a Basic "email:password"); sets AS and SID
-mcp_init() {
-  AS="$1"
-  SID=$(curl -s -D - -o /dev/null -X POST "$API/mcp" -u "$AS" -H "$JSON" -H "$ACCEPT" \
-    -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"verification","version":"1.0"}}}' \
-    | grep -i '^mcp-session-id:' | cut -d' ' -f2 | tr -d '\r')
-  curl -s -o /dev/null -X POST "$API/mcp" -u "$AS" -H "$JSON" -H "$ACCEPT" -H "Mcp-Session-Id: $SID" \
-    -d '{"jsonrpc":"2.0","method":"notifications/initialized"}'
-  echo "session $SID as ${AS%%:*}"
-}
-# send one JSON-RPC request in the session; prints the JSON answer
+# MCP 2026-07-28 is stateless: no initialize, no session id. Every request carries
+# Mcp-Protocol-Version, Mcp-Method (+ Mcp-Name for tools/call) and a _meta.
+META='"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"verification","version":"1.0"},"io.modelcontextprotocol/clientCapabilities":{}}'
+# choose the caller for the next calls ($1 = a Basic "email:password")
+mcp_init() { AS="$1"; echo "calls as ${AS%%:*}"; }
+# one JSON-RPC request: mcp METHOD 'EXTRA-PARAMS' [TOOL-NAME]; prints the JSON answer
 # (the server answers either plain JSON or one SSE frame "data:{...}")
 mcp() {
-  curl -s -X POST "$API/mcp" -u "$AS" -H "$JSON" -H "$ACCEPT" -H "Mcp-Session-Id: $SID" -d "$1" \
-    | sed -n '/^data:/{s/^data://;p;d};/^{/p' | python3 -m json.tool
+  curl -s -X POST "$API/mcp" -u "$AS" -H "$JSON" -H "$ACCEPT" \
+    -H "Mcp-Protocol-Version: 2026-07-28" -H "Mcp-Method: $1" ${3:+-H "Mcp-Name: $3"} \
+    -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$1\",\"params\":{${2:+$2,}$META}}" \
+    | sed -n '/^data:/{s/^data://;p;d};/^{/p' | tail -1 | python3 -m json.tool
 }
 # call one tool: tool NAME 'JSON-ARGS'
-tool() { mcp "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{\"name\":\"$1\",\"arguments\":$2}}"; }
+tool() { mcp tools/call "\"name\":\"$1\",\"arguments\":$2" "$1"; }
 ```
 
 ## 1) Step 1 — the MCP server
@@ -44,15 +41,14 @@ tool() { mcp "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\"
 # anonymous -> 401 (the route keeps Basic auth)
 curl -s -o /dev/null -w "anonymous POST /mcp -> %{http_code}\n" -X POST "$API/mcp" -H "$JSON" -d '{}'
 
-# initialize: 200, Mcp-Session-Id header, serverInfo.name = listings-api
-curl -s -D - -X POST "$API/mcp" -u "$ALICE" -H "$JSON" -H "$ACCEPT" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"verification","version":"1.0"}}}' \
-  | grep -iE '^HTTP|^mcp-session-id|serverInfo'
-
-# tools/list: [] before Step 2, 2 tools after Step 2, 3 after Step 4
+# server/discover: 200, the protocol version, serverInfo.name = listings-api
 mcp_init "$ALICE"
-mcp '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' \
-  | python3 -c 'import sys,json; [print(t["name"], "|", t["description"], "|", list(t["inputSchema"].get("properties",{})), "required", t["inputSchema"].get("required")) for t in json.load(sys.stdin)["result"]["tools"]]'
+mcp server/discover \
+  | python3 -c 'import sys,json; r=json.load(sys.stdin)["result"]; print("versions", r["supportedVersions"], "| serverInfo", r["_meta"]["io.modelcontextprotocol/serverInfo"])'
+
+# tools/list: 0 tools before Step 2, 2 after Step 2, 3 after Step 4
+mcp tools/list \
+  | python3 -c 'import sys,json; t=json.load(sys.stdin)["result"]["tools"]; print(len(t), "tool(s)"); [print(" ", x["name"], "|", x["description"], "|", list(x["inputSchema"].get("properties",{})), "required", x["inputSchema"].get("required")) for x in t]'
 ```
 
 ## 2) Step 2 — read tools vs the REST API
@@ -63,10 +59,10 @@ tool get_listing '{"id":1}'                                   # result.content[0
 curl -s -u "$ALICE" "$API/listings/1" | python3 -m json.tool   # same fields
 
 tool list_listings '{"category":"SPORTS","maxPrice":500}' \
-  | python3 -c 'import sys,json; print(json.load(sys.stdin)["result"]["content"][0]["text"])'
+  | python3 -c 'import sys,json; print("tool ids:", sorted(i["id"] for i in json.loads(json.load(sys.stdin)["result"]["content"][0]["text"])))'
 curl -s "$API/listings?category=SPORTS&maxPrice=500" \
-  | python3 -c 'import sys,json; print(sorted(i["id"] for i in json.load(sys.stdin)["content"]))'
-# the two id sets must be equal
+  | python3 -c 'import sys,json; print("REST ids:", sorted(i["id"] for i in json.load(sys.stdin)["content"]))'
+# the two id lists must be equal
 ```
 
 ## 3) Step 4 — the write tool and ownership
@@ -120,6 +116,7 @@ curl -s -w "\n-> %{http_code}\n" -X POST -u "$ALICE" "$API/listings/1/ai-descrip
 
 # Step 6: regenerate (owner), then the V2 payload carries the stored text, V1 does not
 curl -s -X POST -u "$ALICE" "$API/listings/1/ai-description/regenerate" | python3 -m json.tool
+curl -s -o /dev/null -w "bob regenerate -> %{http_code}\n" -X POST -u "$BOB" "$API/listings/1/ai-description/regenerate"   # 403 (updateAiDescription: TP1 owner check)
 curl -s "$API/listings/1?version=V2" | python3 -c 'import sys,json; print("V2 aiDescription:", json.load(sys.stdin).get("aiDescription"))'
 curl -s "$API/listings/1"            | python3 -c 'import sys,json; print("V1 has aiDescription:", "aiDescription" in json.load(sys.stdin))'
 (cd "$TP1_DIR" && docker compose exec -T listings-postgres psql -U listings -d listings \
@@ -151,10 +148,13 @@ cd "$TP1_DIR" && docker compose down              # keep the DB
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Antigravity shows no tools, or `GET /sse` used | server on the legacy SSE transport | `spring.ai.mcp.server.protocol: STREAMABLE`; client `serverUrl: http://localhost:8080/mcp` |
+| Antigravity stays at `listings initializing...` | server on a session-based transport (`STREAMABLE`, Spring AI 2.0) | Spring AI 2.1 + `spring.ai.mcp.server.protocol: MODERN` (README §0) |
 | a tool is named `listListings` | `@Tool` without `name` | `@Tool(name = "list_listings", …)` |
-| `tools/list` is empty after Step 2 | no `ToolCallbackProvider` bean for `ListingTools` | Step 2, item 2; the startup log says `Registered tools: N` |
-| `400` / session error on `tools/list` | missing `Mcp-Session-Id` (or `Accept`) header | send the header returned by `initialize` (helpers of §0) |
+| `tools/list` is empty after Step 2 | no `ToolCallbackProvider` bean for `ListingTools` | Step 2, item 2; the startup log says `Registered modern tools: N` |
+| `400 Missing required header: Mcp-Method` | a request without the 2026-07-28 headers (or a hand-written `initialize`) | use the helpers of §0 (`Mcp-Protocol-Version`, `Mcp-Method`, `Mcp-Name`, `_meta`) |
+| app does not start: `found duplicate key spring` | README §0 block pasted as a second top-level `spring:` | put `ai:` under the existing `spring:` (and `listings:`) keys |
+| `503 … high demand` / timeouts on every Gemini call | `gemini-flash-latest` overloaded on the free tier | `LISTINGS_AI_MODEL=gemini-flash-lite-latest` (README §0) |
+| `{"description": null}` in `get_listing` but not in `GET /listings/1` | Spring AI's own Jackson mapper ignores TP1's `non_null` setting | `@JsonInclude(NON_NULL)` on the returned DTO (Step 2) |
 | 403 text missing, raw exception message instead | no `AiErrorMapper` | Step 4, item 2 |
 | `503` even with the key exported | the compose does not forward it | `GEMINI_API_KEY: ${GEMINI_API_KEY:-}` in the base compose, then `up -d` again |
 | `404 … model … not found` | retired fixed model version | `listings.ai.model: gemini-flash-latest` |
