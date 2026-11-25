@@ -84,19 +84,23 @@ layer:
 
 ### The pieces of this TP, in one picture
 
+```mermaid
+flowchart TD
+    client(["<b>Antigravity</b><br/><i>the waouh client · Step 3</i>"])
+    subgraph api["listings-api (TP1, port 8080)"]
+        mcp["<b>POST /mcp</b><br/><i>the MCP server · Step 1</i>"]
+        tools["<b>com.app.listings.ai.tools.*</b><br/><i>your @Tool methods · Steps 2, 4</i>"]
+        svc["<b>TP1 ListingService</b><br/><i>rules: 404, 403, 422 (unchanged)</i>"]
+        gem["<b>GeminiClient</b><br/><i>bonus · Steps 5, 6</i>"]
+    end
+    gemini(["<b>Gemini</b><br/>gemini-flash-latest<br/><i>key = env GEMINI_API_KEY</i>"])
+    client -- "MCP 2026-07-28 over HTTP<br/>Basic = one SELLER" --> mcp --> tools -- "delegate to" --> svc
+    gem -- "HTTPS" --> gemini
 ```
-   Antigravity (the "waouh" client)                            [Step 3]
-        |   MCP 2026-07-28 over HTTP, authenticates as a SELLER (Basic)
-        v
-   listings-api (TP1, port 8080)
-     POST /mcp                            <- the MCP server       [Step 1]
-     com.app.listings.ai.tools.*          <- your @Tool methods   [Steps 2, 4]
-        |   delegate to
-     TP1 ListingService                   <- rules: 404, 403, 422 (unchanged)
-        |
-     (bonus) GeminiClient ── HTTPS ──► Gemini (Google AI Studio,
-                                        model gemini-flash-latest, key = env GEMINI_API_KEY)  [Steps 5, 6]
-```
+
+The AI client calls your API (MCP); in the bonuses, your API calls an AI
+(Gemini). In the step diagrams, the highlighted boxes are the parts you write
+in that step, red boxes are error answers.
 
 ---
 
@@ -108,7 +112,23 @@ layer:
 | **Bonus** (start only when the core checklists are green) | 5 (Gemini text generation) · 6 (persist the text + harden the prompt) | ~2h |
 | **Delivery** | 7 (final integration) | ~0h30 |
 
-Work the core **in order**. If the core is not green, do not start the bonuses.
+```mermaid
+flowchart TD
+    subgraph core["CORE, in order"]
+        direction LR
+        s1["1<br/>MCP server"] --> s2["2<br/>read tools"] --> s3["3<br/>AI client"] --> s4["4<br/>write tool"]
+    end
+    subgraph bonus["BONUS"]
+        direction LR
+        s5["5<br/>call Gemini"] --> s6["6<br/>persist, guard"]
+    end
+    core --> s7["7<br/>delivery"]
+    core -. "core green" .-> bonus -.-> s7
+    classDef bonusStep stroke-dasharray:4 3
+    class s5,s6 bonusStep
+```
+
+If the core is not green, do not start the bonuses.
 
 ---
 
@@ -163,10 +183,17 @@ unchanged.
 
 ### How it fits
 
-```
-curl / AI client ── POST /mcp (Basic) ──► security chain (TP1) ──► Spring AI MCP endpoint (starter, item 1)
-                                             anonymous ──► 401        server/discover ──► serverInfo listings-api (item 2)
-                                                                      tools/list ──► [] (no tool yet)
+```mermaid
+flowchart LR
+    c(["curl / AI client"]) -- "POST /mcp (Basic)" --> sec["security chain<br/><i>TP1, item 3: unchanged</i>"]
+    sec -- "anonymous" --> e401["401"]
+    sec --> ep["<b>Spring AI MCP endpoint</b><br/><i>starter, item 1</i>"]
+    ep -- "server/discover" --> d["serverInfo listings-api<br/><i>item 2</i>"]
+    ep -- "tools/list" --> l["[ ]<br/><i>no tool yet</i>"]
+    classDef todo fill:#fde68a,stroke:#b45309,stroke-width:2px,color:#111
+    classDef err fill:#fecaca,stroke:#b91c1c,color:#111
+    class ep,d todo
+    class e401 err
 ```
 
 ### Build it
@@ -230,10 +257,13 @@ contract, not a comment.
 
 ### How it fits
 
-```
-tools/list ──► Spring AI ──► ToolCallbackProvider (AiToolsConfig, item 2) ──► ListingTools (item 1)
-                               names, descriptions, inputSchema from @Tool / @ToolParam
-tools/call get_listing {id} ──► ListingTools.getListing ──► TP1 ListingService ──► same DTO as GET /listings/{id}
+```mermaid
+flowchart TD
+    list(["tools/list"]) --> sai["Spring AI"] --> prov["<b>ToolCallbackProvider</b><br/><i>AiToolsConfig, item 2</i>"] --> lt["<b>ListingTools</b> · item 1<br/><i>names, descriptions, inputSchema<br/>from @Tool / @ToolParam</i>"]
+    call(["tools/call get_listing {id}"]) --> lt
+    lt -- "delegates" --> svc["TP1 ListingService"] --> dto["same DTO as<br/>GET /listings/{id}"]
+    classDef todo fill:#fde68a,stroke:#b45309,stroke-width:2px,color:#111
+    class prov,lt todo
 ```
 
 ### Build it
@@ -302,13 +332,20 @@ shows the limit: the client decides *which* tool to call, your Java decides
 
 ### How it fits
 
-```
-you ── "what do you have in sports under 500?" ──► Antigravity (LLM)
-                                                      │ picks list_listings, fills {category, maxPrice}
-                                                      ▼
-                                   POST /mcp tools/call (Basic = one SELLER) ──► your Java ──► DB
-                                                      ▲
-                       natural-language answer ◄──────┘ (built from YOUR tool result)
+```mermaid
+sequenceDiagram
+    actor Y as you
+    participant C as Antigravity (LLM)
+    participant M as listings-api /mcp
+    participant D as DB
+    Note over C,M: at registration: tools/list (Basic = one SELLER, item 1-2)
+    Y->>C: what do you have in sports under 500?
+    Note over C: picks list_listings,<br/>fills {category, maxPrice}
+    C->>M: tools/call list_listings (Basic)
+    M->>D: your Java, TP1 service
+    D-->>M: rows
+    M-->>C: tool result
+    C-->>Y: natural-language answer, built from YOUR tool result
 ```
 
 ### Build it
@@ -376,16 +413,23 @@ the model asks.
 
 ### How it fits
 
-```
-tools/call change_listing_price {id, newPrice} (Basic = alice)
-   │
-   ▼
-ListingTools.changeListingPrice (item 1)
-   ├─ newPrice <= 0 ──► "422 newPrice …"                     (isError: true)
-   ├─ TP1 ListingService.update(id, caller, …)
-   │     ├─ unknown id ──► ResourceNotFoundException ──► "404 …" (item 2: mapper)
-   │     ├─ not owner  ──► AccessDeniedException     ──► "403 …"
-   │     └─ ok ──► price saved ──► "OK new price 320.00"      (isError: false)
+The service keeps the **rule** (it throws TP1's exceptions); the tool gives
+the failure an **AI-facing shape** (a status-prefixed message):
+
+```mermaid
+flowchart TD
+    call(["tools/call change_listing_price {id, newPrice}<br/>Basic = alice"]) --> v{"newPrice > 0?<br/><i>tool, item 1</i>"}
+    v -- "no" --> e422["isError: true<br/>422 newPrice …"]
+    v -- "yes" --> svc["<b>TP1 ListingService.update</b><br/><i>the rule</i>"]
+    svc -- "unknown id:<br/>ResourceNotFoundException" --> map["<b>AiErrorMapper</b> · item 2<br/><i>the AI-facing shape</i>"]
+    svc -- "not owner:<br/>AccessDeniedException" --> map
+    map --> e404["isError: true<br/>404 …"]
+    map --> e403["isError: true<br/>403 …"]
+    svc -- "ok: price saved" --> ok["isError: false<br/>OK new price 320.00"]
+    classDef todo fill:#fde68a,stroke:#b45309,stroke-width:2px,color:#111
+    classDef err fill:#fecaca,stroke:#b91c1c,color:#111
+    class v,map todo
+    class e422,e404,e403 err
 ```
 
 ### Build it
@@ -410,13 +454,6 @@ ListingTools.changeListingPrice (item 1)
    → Each case exercises a different branch; the failure branches are the
    point of the step.
 
-> **Why the tool maps the exception, not the service** — the service keeps
-> throwing the TP1 exception (`ResourceNotFoundException`,
-> `AccessDeniedException`) — that is where TP1's **business rule** is
-> enforced. The tool **catches** it and **converts** it into a **message the
-> LLM can read**. The split keeps the *rule* in the *service* and the
-> *AI-facing shape* in the *tool*.
-
 ### Expected behavior
 The **full matrix** of this TP (one table, here, not duplicated per step):
 
@@ -429,11 +466,9 @@ The **full matrix** of this TP (one table, here, not duplicated per step):
 Additional rules:
 - Owner write: the **new** price is persisted (verify with a fresh `curl
   GET /listings/{id}`).
-- Non-owner write: `isError: true`, text **starts with** `403`; the DB is
-  **unchanged** (TP1 ownership is **not** bypassed).
-- Unknown `id`: `isError: true`, text **starts with** `404` (e.g. `404 Listing
-  not found: id=99999`).
-- `newPrice <= 0`: `isError: true`, text **starts with** `422 newPrice`.
+- Every failure branch of the *How it fits* diagram: `isError: true`, text
+  **starting with** the status (e.g. `404 Listing not found: id=99999`), and
+  the DB is **unchanged** (TP1 ownership is **not** bypassed).
 
 ### Verify
 
@@ -467,13 +502,18 @@ give it the facts so it does not invent them.
 
 ### How it fits
 
-```
-POST /listings/{id}/ai-description (Basic, owner)
-   └─► AiListingController (item 4) ── ListingService.findOwned: TP1 owner check (403/404) (item 3)
-          └─► GeminiClient.describe(prompt with DB facts) (item 2)
-                 └─ Client (google-genai) ── HTTPS, timeout 10 s ──► Gemini gemini-flash-latest
-                      key: env GEMINI_API_KEY (host) ──► compose ${GEMINI_API_KEY:-} ──► container (item 5)
-          failure (no key, ApiException, timeout) ──► GeminiUnavailableException ──► 503 (item 6)
+```mermaid
+flowchart TD
+    req(["POST /listings/{id}/ai-description<br/>Basic, owner"]) --> ctl["<b>AiListingController</b> · item 4"]
+    ctl -- "findOwned" --> svc["<b>ListingService.findOwned</b> · item 3<br/><i>TP1 owner check: 403 / 404</i>"]
+    ctl -- "prompt with DB facts" --> gc["<b>GeminiClient.describe</b> · item 2<br/><i>google-genai, timeout 10 s</i>"]
+    gc -- "HTTPS" --> gem(["Gemini<br/>gemini-flash-latest"])
+    key["host env GEMINI_API_KEY → compose ${GEMINI_API_KEY:-}<br/>→ container · item 5"] -.-> gc
+    gc -- "no key, ApiException, timeout:<br/>GeminiUnavailableException" --> e503["<b>503</b> LLM_UNAVAILABLE<br/><i>GlobalExceptionHandler, item 6</i>"]
+    classDef todo fill:#fde68a,stroke:#b45309,stroke-width:2px,color:#111
+    classDef err fill:#fecaca,stroke:#b91c1c,color:#111
+    class ctl,svc,gc,key todo
+    class e503 err
 ```
 
 ### Build it
@@ -572,12 +612,18 @@ model can contradict the facts. Both are checked in code, before saving.
 
 ### How it fits
 
-```
-POST …/ai-description/regenerate (owner)
-   └─► AiDescriptionService (item 5)
-         (a) findOwned (Step 5) ── (b) sanitize title (deny-list, WARN) ── (c) GeminiClient.describe
-         (d) honesty guard: text agrees with DB price + category? ── no ──► 422, nothing saved
-         (e) ListingService.updateAiDescription (item 4) ──► listing.ai_description (item 1-2) ──► V2 payload only (item 3)
+```mermaid
+flowchart TD
+    req(["POST …/ai-description/regenerate<br/>owner · item 6"]) --> a
+    subgraph ads["AiDescriptionService"]
+        a["(a) findOwned<br/><i>Step 5: 403 / 404</i>"] --> b["(b) sanitize title<br/><i>deny-list hit: WARN, raw title not sent</i>"] --> c["(c) GeminiClient.describe"] --> d{"(d) honesty guard:<br/>text agrees with DB<br/>price + category?"}
+    end
+    d -- "no" --> e422["422<br/><i>nothing saved</i>"]
+    d -- "yes" --> e["(e) ListingService.updateAiDescription<br/><i>item 4</i>"] --> col[("listing.ai_description<br/><i>items 1-2</i>")] --> v2["V2 payload only<br/><i>item 3</i>"]
+    classDef todo fill:#fde68a,stroke:#b45309,stroke-width:2px,color:#111
+    classDef err fill:#fecaca,stroke:#b91c1c,color:#111
+    class a,b,c,d,e,col,v2 todo
+    class e422 err
 ```
 
 ### Build it
