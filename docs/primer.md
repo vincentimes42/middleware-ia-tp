@@ -28,9 +28,15 @@ whole idea of the day.
 | Spring AI (Boot 4 line) | `org.springframework.ai:spring-ai-starter-mcp-server-webmvc:**2.1.0-RC2**` (`protocol: MODERN`) | Steps 1-4 (the MCP server + tools) |
 | Google Gen AI SDK | `com.google.genai:google-genai:**1.78.0**` | Steps 5-6 (calling Gemini) |
 
-> **Why two different things:** Spring AI = **exposing tools** to an AI
-> client. The **Gemini SDK** = **asking the model** a question from your code.
-> Keep the two separate in your head. Spring AI **2.1** targets the Boot 4
+**Why two different things** — the calls go in opposite directions:
+
+```mermaid
+flowchart LR
+    client(["AI client<br/>Antigravity"]) -- "MCP: calls your tools<br/>Spring AI, Steps 1-4" --> api["<b>listings-api</b>"]
+    api -- "asks the model<br/>Gemini SDK, Steps 5-6" --> gemini(["Gemini"])
+```
+
+> Spring AI **2.1** targets the Boot 4
 > line and works with TP1's Boot **4.1.1**; it is the first line with the
 > stateless 2026-07-28 revision of MCP that Antigravity speaks (2.0.x only has
 > the older session-based transports).
